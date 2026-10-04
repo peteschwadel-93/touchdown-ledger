@@ -561,6 +561,7 @@ def apply_locks(sched, picks, now=None):
             rec["lockrows"] = rows
             rec["lock"] = {norm_name(r["n"]): [r["p"], r["pf"]] for r in rows}
             store[u["gid"]] = rec
+            u["lk"] = 1          # saved: the page can say "frozen" the moment the game kicks off
         elif hrs <= 0 and rec.get("lockrows"):
             rows = rec["lockrows"]
             u["locked"] = 1
