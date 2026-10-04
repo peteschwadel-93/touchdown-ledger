@@ -508,12 +508,17 @@ def make(season=None, old=None):
             print(note, file=sys.stderr)
     full = remember_odds(sched, old)
     live = {u["gid"] for u in sched}
+    out["picks"], locks = apply_locks(sched, picks)
+    for row_ in trk:                      # this season's finished games: grade the chances the page showed at kickoff
+        lk = (locks.get(row_[2]) or {}).get("lock") if row_[0] == season else None
+        if lk and norm_name(row_[3]) in lk:
+            row_[7], row_[10] = lk[norm_name(row_[3])]
     out["live"] = live_scores(sched)
-    out["notes"] = espn_notes({norm_name(x["n"]) for x in picks})
+    out["notes"] = espn_notes({norm_name(x["n"]) for x in out["picks"]})
     out["odds"] = {}
     for k, v in full.items():
         if k == "_meta" or k in live or not v.get("b"):
-            out["odds"][k] = v
+            out["odds"][k] = {a: b for a, b in v.items() if a not in ("lock", "lockrows")} if k != "_meta" else v
             continue
         best = {}
         for bk, rows_ in v["b"].items():
@@ -531,6 +536,41 @@ def make(season=None, old=None):
     if note:
         out["odds"]["_meta"]["err"] = note[:200]
     return out
+
+
+# ---------- kickoff locks ----------
+def apply_locks(sched, picks, now=None):
+    """Freeze each game's numbers at kickoff. In the two hours before a game its rows are saved (the last save wins); once it has
+    kicked off the saved rows are shown instead of fresh ones, so picks do not move during the game. The saved chances are kept
+    for good in odds.json, and the Tracker grades this season's games on them: the record is what the page actually showed."""
+    now = now or datetime.now(ET)
+    try:
+        store = json.load(open(ODDS, encoding="utf-8"))
+    except Exception:
+        store = {}
+    by = {}
+    for r in picks:
+        by.setdefault(r["g"], []).append(r)
+    live = {u["gid"] for u in sched}
+    out = []
+    for u in sched:
+        hrs = (datetime.fromisoformat(u["ts"]) - now).total_seconds() / 3600
+        rows = by.get(u["gid"], [])
+        rec = store.get(u["gid"]) or {}
+        if 0 < hrs <= 2 and rows:
+            rec["lockrows"] = rows
+            rec["lock"] = {norm_name(r["n"]): [r["p"], r["pf"]] for r in rows}
+            store[u["gid"]] = rec
+        elif hrs <= 0 and rec.get("lockrows"):
+            rows = rec["lockrows"]
+            u["locked"] = 1
+        out += rows
+    for k, v in store.items():
+        if k != "_meta" and k not in live and isinstance(v, dict):
+            v.pop("lockrows", None)
+    with open(ODDS, "w", encoding="utf-8") as f:
+        json.dump(store, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+    return out, store
 
 
 # ---------- live results ----------
