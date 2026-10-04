@@ -341,10 +341,15 @@ def make(season=None, old=None):
              "rush": [[int(i), r3(r["mean"]), int(r["size"])] for i, r in RT.iterrows()],
              "tgt": [[int(i[0]), int(i[1]), r3(r["mean"]), int(r["size"])] for i, r in TT.iterrows()], "pos": {}}
     trk = []
-    row = lambda r: [int(r.season), int(r.week), r.game_id, r.name, r.posteam, r.opp, r.pos, r3(r.p), int(r.y), int(r.tds)]
+    row = lambda r: [int(r.season), int(r.week), r.game_id, r.name, r.posteam, r.opp, r.pos, r3(r.p), int(r.y), int(r.tds), r3(r.pf), int(r.ftd)]
+    fc = float(s.groupby("game_id").ftd.sum().mean())
+
+    def with_first(z):      # each player's slice of the game's scoring, scaled to how often the first TD goes to a listed player
+        rate = -np.log(1 - z.p)
+        return z.assign(pf=rate / rate.groupby(z.game_id).transform("sum") * fc)
     if len(tr) > 2000 and len(te) > 1000:
         w0 = fit_logit(design(tr), tr.y.to_numpy(float))
-        te = te.assign(p=predict(w0, design(te)))
+        te = with_first(te.assign(p=predict(w0, design(te))))
         trk += [row(r) for r in te[te.p >= 0.08].itertuples()]
         bt = {"season": int(prev), "model": scores(te.y, te.p), "base": scores(te.y, np.full(len(te), tr.y.mean())),
               "posbase": scores(te.y, te.pos.map(tr.groupby("pos").y.mean()).fillna(tr.y.mean()).to_numpy())}
@@ -366,7 +371,7 @@ def make(season=None, old=None):
     cur = s[s.season == season]
     if len(pre) > 2000 and len(cur):
         w1 = fit_logit(design(pre), pre.y.to_numpy(float))
-        cur = cur.assign(p=predict(w1, design(cur)))
+        cur = with_first(cur.assign(p=predict(w1, design(cur))))
         model["trk"] = scores(cur.y, cur.p)
         trk += [row(r) for r in cur[cur.p >= 0.08].itertuples()]
     w = fit_logit(design(s), s.y.to_numpy(float))
@@ -491,9 +496,9 @@ def make(season=None, old=None):
            "model": model, "trk": trk}
     note = None
     bf = os.environ.get("ODDS_BACKFILL", "").strip().lower()
-    if bf in ("1", "2", "true"):
+    if bf in ("1", "2", "3", "true"):
         try:
-            backfill(season, int(os.environ.get("ODDS_LEAD", "60")), True, int(os.environ.get("ODDS_BACKFILL_MAX", "0")) or None, back=1 if bf == "2" else 0)
+            backfill(season, int(os.environ.get("ODDS_LEAD", "60")), True, int(os.environ.get("ODDS_BACKFILL_MAX", "0")) or None, back=1 if bf == "2" else 0, first=bf == "3")
         except SystemExit as e:
             note = str(e)
             print(note, file=sys.stderr)
@@ -510,6 +515,13 @@ def make(season=None, old=None):
                 if who not in best or price > best[who][1]:
                     best[who] = [who, price, bk]
         out["odds"][k] = {"at": v.get("at"), "best": list(best.values())}
+        bf_ = {}
+        for bk, rows_ in (v.get("f") or {}).items():
+            for who, price in rows_:
+                if who not in bf_ or price > bf_[who][1]:
+                    bf_[who] = [who, price, bk]
+        if bf_:
+            out["odds"][k]["bestf"] = list(bf_.values())
     if note:
         out["odds"]["_meta"]["err"] = note[:200]
     return out
@@ -607,7 +619,7 @@ def remember_odds(sched, old, force=False):
     return store
 
 
-def backfill(season, lead=60, go=False, limit=None, back=0):
+def backfill(season, lead=60, go=False, limit=None, back=0, first=False):
     """Closing-ish anytime-TD prices for this season's finished games, from The Odds API's historical endpoints (paid plans only).
 
     For each finished game without stored prices it asks for the snapshot `lead` minutes before kickoff. Cost: 10 requests per
@@ -622,7 +634,10 @@ def backfill(season, lead=60, go=False, limit=None, back=0):
         store = json.load(open(ODDS, encoding="utf-8"))
     except Exception:
         store = {}
-    todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("b")]
+    if first:      # first-touchdown prices for games that do not have them yet (and anytime too where that is missing)
+        todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("f") and not (store.get(r.game_id) or {}).get("ftry")]
+    else:
+        todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("b")]
     if limit:
         todo = todo[:limit]
     slots = {}
@@ -656,7 +671,9 @@ def backfill(season, lead=60, go=False, limit=None, back=0):
                 print(f"  {r.game_id}: not listed at {stamp}", file=sys.stderr)
                 continue
             try:
-                raw, hd = get(f"{ODDS_API.replace('/v4/', '/v4/historical/')}/events/{eid}/odds?apiKey={key}&regions=us&markets=player_anytime_td"
+                old_rec = store.get(r.game_id) or {}
+                mk = "player_anytime_td" if not first else "player_1st_td" if old_rec.get("b") else "player_anytime_td,player_1st_td"
+                raw, hd = get(f"{ODDS_API.replace('/v4/', '/v4/historical/')}/events/{eid}/odds?apiKey={key}&regions=us&markets={mk}"
                               f"&oddsFormat=american&date={stamp}", 60, headers=True)
             except urllib.error.HTTPError as e:
                 print(f"  {r.game_id}: {e.code} {e.read().decode('utf-8', 'ignore')[:200].replace(key, '***')}", file=sys.stderr)
@@ -666,12 +683,19 @@ def backfill(season, lead=60, go=False, limit=None, back=0):
                 continue
             doc = json.loads(raw)
             books = parse_td(doc.get("data") or {})
+            ftd = parse_td(doc.get("data") or {}, "player_1st_td") if first else {}
             left = hd.get("x-requests-remaining")
-            if books:
-                snap = doc.get("timestamp") or stamp
-                at = datetime.fromisoformat(snap.replace("Z", "+00:00")).astimezone(ET).strftime("%Y-%m-%dT%H:%M")
-                store[r.game_id] = {"at": at, "b": books, "hist": 1}
-                got += 1
+            snap = doc.get("timestamp") or stamp
+            at = datetime.fromisoformat(snap.replace("Z", "+00:00")).astimezone(ET).strftime("%Y-%m-%dT%H:%M")
+            rec = dict(old_rec)
+            if books and not rec.get("b"):
+                rec.update({"at": at, "b": books, "hist": 1})
+            if first:
+                rec.update({"f": ftd} if ftd else {"ftry": 1})      # ftry: asked once, market was not there
+            if books or ftd or first:
+                store[r.game_id] = rec
+                got += 1 if (books or ftd) else 0
+                books = ftd if first else books
                 with open(ODDS, "w", encoding="utf-8") as f:      # save as we go, so a stop loses nothing
                     json.dump(store, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
             print(f"  {r.game_id}: {len(books)} books" + (f"  ({left} requests left)" if left else ""), flush=True)
@@ -882,6 +906,7 @@ def main():
     ap.add_argument("--lead", type=int, default=60, help="with --backfill: minutes before kickoff to take the prices from")
     ap.add_argument("--limit", type=int, help="with --backfill: only the first N games (to test cheaply)")
     ap.add_argument("--last-season", action="store_true", help="with --backfill: also last season's games")
+    ap.add_argument("--first-td", action="store_true", help="with --backfill: first-touchdown prices for this season's games")
     a = ap.parse_args()
     if a.install:
         return install(a)
@@ -891,7 +916,7 @@ def main():
         sys.exit("pandas is missing. Run:  python3 build_data.py --install")
     if a.backfill:
         os.chdir(os.path.dirname(os.path.abspath(__file__)))
-        return backfill(a.season, a.lead, a.yes, a.limit, back=1 if a.last_season else 0)
+        return backfill(a.season, a.lead, a.yes, a.limit, back=1 if a.last_season else 0, first=a.first_td)
     if a.serve:
         return serve(a)
     try:

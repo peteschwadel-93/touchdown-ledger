@@ -26,7 +26,7 @@ h1{font:700 46px/1 var(--display);letter-spacing:.02em;text-transform:uppercase;
 .btn{font:600 13px var(--body);color:var(--accent-ink);background:var(--accent);border:0;border-radius:999px;padding:9px 18px;cursor:pointer}
 .btn:hover{filter:brightness(1.08)}.btn:disabled{opacity:.6;cursor:progress}
 .btn.ghost{background:none;color:var(--accent);border:1px solid var(--accent)}
-h2{font:600 26px/1.1 var(--display);text-transform:uppercase;letter-spacing:.04em;margin:0;text-wrap:balance;color:var(--accent)}
+h2.sep{margin-top:10px}h2{font:600 26px/1.1 var(--display);text-transform:uppercase;letter-spacing:.04em;margin:0;text-wrap:balance;color:var(--accent)}
 h3{font:500 11.5px/1.2 var(--body);text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin:0}
 .bar{display:flex;flex-wrap:wrap;gap:14px 20px;align-items:center}
 .tabs{display:flex;flex-wrap:wrap;gap:8px}
@@ -62,7 +62,7 @@ td.k,th.k{background:rgba(255,255,255,.035)}
 tr.pick{cursor:pointer}tr.pick:hover>td{background:var(--raise)}
 tbody tr.on>td{background:var(--accent-soft)}
 tbody tr.det>td{background:var(--bg);white-space:normal;padding:18px}
-.tm{font:600 16px var(--display);letter-spacing:.07em}
+.tm{font:600 16px var(--display);letter-spacing:.07em}.tml{display:inline-flex;align-items:center;gap:.4em;white-space:nowrap;vertical-align:middle}.tlogo{width:22px;height:22px;flex:none;object-fit:contain}.who .tlogo,.gcard h2 .tlogo{width:34px;height:34px}.tag.t8{background:var(--made);color:var(--accent-ink);border-color:transparent}.gcard{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0}.gcard .matchhead{background:var(--surface)}.jump{display:flex;flex-wrap:wrap;gap:6px}.jump a{font:500 12.5px var(--body);color:var(--soft);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:5px 11px}.jump a:hover{color:var(--accent);border-color:var(--accent)}
 .pn{font-weight:500}
 .o{color:var(--muted)}
 .meter{display:inline-block;width:56px;height:6px;background:var(--sunk);border-radius:999px;vertical-align:middle;margin-left:10px;overflow:hidden}
@@ -88,7 +88,7 @@ tbody tr.det>td{background:var(--bg);white-space:normal;padding:18px}
 .rs{grid-column:2/4;font-size:12.5px;color:var(--muted)}
 .kv{display:flex;flex-wrap:wrap;gap:6px 24px;font-size:13.5px;color:var(--muted);align-items:baseline}
 .kv b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
-.empty{color:var(--muted);padding:6px 0;margin:0}
+.empty{color:var(--muted);padding:6px 0;margin:0}section[id^="game-"]{scroll-margin-top:16px}
 .calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:18px 28px}
 .calc>div{display:flex;flex-direction:column;gap:8px;min-width:0}.calc>div.wide{grid-column:1/-1}.tag.pk{background:var(--accent);color:var(--accent-ink);border-color:transparent}.tag.hot{color:var(--miss);border-color:color-mix(in srgb,var(--miss) 45%,transparent)}
 .eq{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 14px;font-size:13.5px;color:var(--soft)}
@@ -185,10 +185,14 @@ function firstOf(r){var by=oddsFor(r.g).byf[norm(r.n)];if(!by)return null;if(S.b
   var best=null;Object.keys(by).forEach(function(b){if(!best||dec(by[b])>dec(best.a))best={a:by[b],bk:b}});return best}
 function calc(r){var pr=priceOf(r);r._pr=pr;if(pr){var d=dec(pr.a);r._imp=1/d;r._ev=r.p*d-1;r._k=r._ev/(d-1)}else{r._imp=r._ev=r._k=null}
   var fp=firstOf(r);r._fp=fp;r._fev=fp?r.pf*dec(fp.a)-1:null;
-  r._pick=!!(pr&&r.p>=PK.p&&r._ev>=PK.lo&&r._ev<=PK.hi);return r}
-function pickTag(r){return r._pick?' <span class="tag pk" title="Passes the Picks rule: chance 20%+, edge 3% to 25% at the best price">Pick</span>':(r._ev!=null&&r._ev>PK.hi&&r.p>=0.08?' <span class="tag hot" title="Edges above 25% have lost money in the back-check. The book usually knows something.">Too good?</span>':"")}
+  r._pick=!!(pr&&r.p>=PK.p&&r._ev>=PK.lo&&r._ev<=PK.hi);r._top=false;return r}
+function pickTag(r){return r._top?' <span class="tag t8" title="One of the eight likeliest scorers among this week\'s Ledger picks">Top 8</span>':r._pick?' <span class="tag pk" title="Passes the Picks rule: chance 20%+, edge 3% to 25% at the best price">Pick</span>':(r._ev!=null&&r._ev>PK.hi&&r.p>=0.08?' <span class="tag hot" title="Edges above 25% have lost money in the back-check. The book usually knows something.">Too good?</span>':"")}
 function evCls(e){return e==null?"":e>=0.15?"p2":e>=0.03?"p1":e>=0?"p0":"neg"}
 function evTxt(e){return e==null?"–":(e>=0?"+":"")+(e*100).toFixed(0)+"%"}
+var ESPN={LA:"lar",WAS:"wsh"};
+function lg(t){return '<img class="tlogo" alt="" loading="lazy" src="NFL%20Logos/'+t+'logo.svg" data-t="'+t+'" onerror="logoFail(this)">'}
+window.logoFail=function(im){if(im.dataset.t&&/^https?:$/.test(location.protocol)&&!/claude/.test(location.hostname)){var t=im.dataset.t;im.removeAttribute("data-t");im.src="https://a.espncdn.com/i/teamlogos/nfl/500/"+(ESPN[t]||t.toLowerCase())+".png"}else im.remove()};
+function tmL(t){return '<span class="tml">'+lg(t)+'<span class="tm">'+t+"</span></span>"}
 function gm(gid){for(var i=0;i<D.sched.length;i++)if(D.sched[i].gid===gid)return D.sched[i]}
 function injTag(r){var t="";if(r.inj&&r.inj[0])t+=' <span class="tag q" title="'+esc(r.inj[1]+(r.inj[2]?" · "+r.inj[2]:""))+'">'+esc(r.inj[0].slice(0,1))+"</span>";
   if(r.back)t+=' <span class="tag q" title="No snaps in the team\'s last two games">Back?</span>';return t}
@@ -196,7 +200,9 @@ function vsTxt(r){var g=gm(r.g);return (g&&g.h===r.t?"vs ":"@ ")+r.o}
 function meter(p,max){return '<span class="meter"><i style="width:'+Math.min(100,p/(max||0.65)*100).toFixed(0)+'%"></i></span>'}
 function seg(id,opts,cur){return '<span class="seg" id="'+id+'">'+opts.map(function(o){return '<button data-v="'+esc(o[0])+'" aria-pressed="'+(String(o[0])===String(cur))+'">'+esc(o[1])+"</button>"}).join("")+"</span>"}
 function weeks(){var w=[];D.sched.forEach(function(g){if(w.indexOf(g.wk)<0)w.push(g.wk)});return w}
-function pool(){return D.picks.filter(function(r){var g=gm(r.g);return g&&g.wk===S.wk}).map(calc)}
+function poolWk(wk){var rows=D.picks.filter(function(r){var g=gm(r.g);return g&&g.wk===wk}).map(calc);
+  rows.filter(function(r){return r._pick}).sort(function(a,b){return b.p-a.p}).slice(0,8).forEach(function(r){r._top=true});return rows}
+function pool(){return poolWk(S.wk)}
 
 /* ---------- Picks ---------- */
 function topCard(title,blurb,rows,val,sub,lead,emptyMsg){
@@ -216,7 +222,7 @@ function vPicks(){
   var byV=elig.filter(function(r){return r._ev>0}).sort(function(a,b){return b._ev-a._ev}).slice(0,6);
   var byK=elig.filter(function(r){return r._k>0}).sort(function(a,b){return b._k-a._k}).slice(0,6);
   var byP=rows.slice().sort(function(a,b){return b.p-a.p}).slice(0,6);
-  var picks=priced.filter(function(r){return r._pick}).sort(function(a,b){return b._k-a._k}),rec=pickRecord();
+  var picks=priced.filter(function(r){return r._pick}).sort(function(a,b){return b.p-a.p}),rec=pickRecord();
   var none=priced.length?"No player at "+pct(S.minp)+"+ beats his price right now. Books take 25–45% out of this market, so empty is normal.":"Shows up once prices are loaded. Until then, compare the fair price column to your book.";
   var h='<section class="panel"><div class="phead"><h2>Week '+S.wk+" picks</h2><div class=\"filters\">"+
     (weeks().length>1?'<label class="f">Week '+seg("seg-wk",weeks().map(function(w){return[w,"Week "+w]}),S.wk)+"</label>":"")+
@@ -224,14 +230,14 @@ function vPicks(){
   h+='<p class="note">'+(withP?"<b>Prices loaded for "+withP+" of "+games.length+" games.</b> ":"<b>No sportsbook prices loaded yet.</b> The model's chance and fair price are live for every player; edge appears once a price is in. ")+
     "Value is the expected return per $1 at the best price found. Blend is the Kelly stake. <b>Ledger picks</b> are the narrower set that has paid in the back-check: real contributors with a modest edge. The return comes from taking the best price across books, so shop every pick."+(meta.left!=null?" Odds API requests left: <b>"+meta.left+"</b>.":"")+(meta.err?" Last price pull failed: "+esc(meta.err)+".":"")+"</p>";
   h+='<div class="rcards">'+
-    topCard("Ledger picks"+(picks.length?" · "+picks.length:""),"Chance 20%+ and an edge of 3% to 25% at the best price. "+(rec?"Back-check: "+rec.n+" bets, "+evTxt(rec.u/rec.n)+" per bet.":"The zone that held up in the back-check."),picks.slice(0,8),function(r){return '<span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+"</span>"},function(r){return fmtA(r._pr.a)+" "+esc(r._pr.bk)+" · model "+pct(r.p)+" · fair "+amer(r.p)},true,priced.length?"No player passes the rule right now. Check again after the next price pull.":"Shows up once prices are loaded.")+
+    topCard("Top 8"+(picks.length>8?" of "+picks.length+" picks":""),"The eight likeliest scorers among Ledger picks (chance 20%+, edge 3% to 25% at the best price). "+(rec?"Back-check: all picks "+evTxt(rec.u/rec.n)+" per bet over "+rec.n+(rec.n8?"; top 8 a week "+evTxt(rec.u8/rec.n8)+" over "+rec.n8:"")+".":""),picks.slice(0,8),function(r){return '<span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+"</span>"},function(r){return fmtA(r._pr.a)+" "+esc(r._pr.bk)+" · model "+pct(r.p)+" · fair "+amer(r.p)},true,priced.length?"No player passes the rule right now. Check again after the next price pull.":"Shows up once prices are loaded.")+
     topCard("Best value","Highest expected return, players at "+pct(S.minp)+"+ only. Big edges are often the book knowing more.",byV,function(r){return '<span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+"</span>"},function(r){return fmtA(r._pr.a)+" "+esc(r._pr.bk)+" · model "+pct(r.p)+" · fair "+amer(r.p)},false,none)+
     topCard("Best blend","Value weighted by likelihood (Kelly stake).",byK,function(r){return (r._k*100).toFixed(1)+"%"},function(r){return fmtA(r._pr.a)+" · model "+pct(r.p)+" · edge "+evTxt(r._ev)},false,none)+
     topCard("Most likely","Highest chance to score, price ignored.",byP,function(r){return pct(r.p)},function(r){return "fair "+amer(r.p)+(r._pr?" · best "+fmtA(r._pr.a)+" · edge "+evTxt(r._ev):"")},false,"")+"</div>";
   h+=priceHelp()+"</section>";
   /* board */
   var books=allBooks();
-  var list=rows.filter(function(r){return (S.pos==="all"||r.pos===S.pos)&&(S.game==="all"||r.g===S.game)&&(S.priced===2?r._pick:r.p>=S.minp&&(!S.priced||r._pr))});
+  var list=rows.filter(function(r){return (S.pos==="all"||r.pos===S.pos)&&(S.game==="all"||r.g===S.game)&&(S.priced===3?r._top:S.priced===2?r._pick:r.p>=S.minp&&(!S.priced||r._pr))});
   var key={value:function(r){return r._ev==null?-9:r._ev},blend:function(r){return r._k==null?-9:r._k},likely:function(r){return r.p}}[S.sort];
   list.sort(function(a,b){return key(b)-key(a)||b.p-a.p});
   h+='<section class="panel"><div class="phead"><h2>The board</h2><div class="filters">'+
@@ -239,12 +245,12 @@ function vPicks(){
     '<label class="f">Position '+seg("seg-pos",[["all","All"],["RB","RB"],["WR","WR"],["TE","TE"],["QB","QB"]],S.pos)+"</label>"+
     '<label class="f" for="selGame">Game <select id="selGame"><option value="all">All games</option>'+games.map(function(g){return '<option value="'+g.gid+'"'+(S.game===g.gid?" selected":"")+">"+g.a+" @ "+g.h+"</option>"}).join("")+"</select></label>"+
     (books.length?'<label class="f" for="selBook">Book <select id="selBook"><option value="best">Best price</option>'+books.map(function(b){return '<option'+(S.book===b?" selected":"")+">"+esc(b)+"</option>"}).join("")+"</select></label>"+
-    '<label class="f">Show '+seg("seg-priced",[[0,"All"],[1,"Priced"],[2,"Picks"]],S.priced)+"</label>":"")+"</div></div>";
+    '<label class="f">Show '+seg("seg-priced",[[0,"All"],[1,"Priced"],[2,"Picks"],[3,"Top 8"]],S.priced)+"</label>":"")+"</div></div>";
   h+='<p class="note">Open a row for the full working: team touchdowns, run/pass split, the player\'s share of each, recent usage, and a box for your own price. '+list.length+" players shown.</p>";
   h+='<div class="tw"><table><thead><tr><th>Player</th><th>Game</th><th class="n k">Model</th><th class="n k">Fair</th><th class="n">Price</th><th class="n">Implied</th><th class="n k">Edge</th><th class="n">Blend</th><th class="n" title="Share of the team\'s rushing touchdown chances">Rush share</th><th class="n" title="Share of the team\'s receiving touchdown chances">Target share</th><th class="n" title="Expected touchdowns per game from his carries and targets">xTD/g</th><th class="n" title="Team touchdowns expected from the betting total and spread">Team TDs</th><th class="n k" title="Model fair price to score the first touchdown">1st TD fair</th><th class="n" title="Best first-touchdown price found">1st TD price</th><th class="n k" title="Model first-TD chance × price − 1">1st TD edge</th></tr></thead><tbody>';
   if(!list.length)h+='<tr><td colspan="15" class="o">No players match these filters.</td></tr>';
   list.slice(0,S.game==="all"?150:999).forEach(function(r){var id=r.g+"|"+r.id,on=S.open===id;
-    h+='<tr class="pick'+(on?" on":"")+'" tabindex="0" data-open="'+esc(id)+'"><td><span class="tag pos">'+r.pos+'</span> <span class="pn">'+esc(r.n)+"</span>"+injTag(r)+pickTag(r)+'</td><td><span class="tm">'+r.t+'</span> <span class="o">'+vsTxt(r)+'</span></td><td class="n k"><b>'+pct(r.p,1)+"</b>"+meter(r.p)+'</td><td class="n k">'+amer(r.p)+'</td><td class="n">'+(r._pr?fmtA(r._pr.a)+' <span class="o">'+esc(r._pr.bk)+"</span>":'<span class="o">–</span>')+'</td><td class="n">'+pct(r._imp,1)+'</td><td class="n k"><span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+'</span></td><td class="n">'+(r._k==null?"–":r._k>0?(r._k*100).toFixed(1)+"%":"0")+'</td><td class="n">'+pct(r.rs)+'</td><td class="n">'+pct(r.ts)+'</td><td class="n">'+f2(r.x)+'</td><td class="n">'+f2(r.T)+'</td><td class="n k">'+amer(r.pf)+'</td><td class="n">'+(r._fp?fmtA(r._fp.a)+' <span class="o">'+esc(r._fp.bk)+"</span>":'<span class="o">–</span>')+'</td><td class="n k"><span class="ev '+evCls(r._fev)+'">'+evTxt(r._fev)+"</span></td></tr>";
+    h+='<tr class="pick'+(on?" on":"")+'" tabindex="0" data-open="'+esc(id)+'"><td><span class="tag pos">'+r.pos+'</span> <span class="pn">'+esc(r.n)+"</span>"+injTag(r)+pickTag(r)+'</td><td>'+tmL(r.t)+' <span class="o">'+vsTxt(r)+'</span></td><td class="n k"><b>'+pct(r.p,1)+"</b>"+meter(r.p)+'</td><td class="n k">'+amer(r.p)+'</td><td class="n">'+(r._pr?fmtA(r._pr.a)+' <span class="o">'+esc(r._pr.bk)+"</span>":'<span class="o">–</span>')+'</td><td class="n">'+pct(r._imp,1)+'</td><td class="n k"><span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+'</span></td><td class="n">'+(r._k==null?"–":r._k>0?(r._k*100).toFixed(1)+"%":"0")+'</td><td class="n">'+pct(r.rs)+'</td><td class="n">'+pct(r.ts)+'</td><td class="n">'+f2(r.x)+'</td><td class="n">'+f2(r.T)+'</td><td class="n k">'+amer(r.pf)+'</td><td class="n">'+(r._fp?fmtA(r._fp.a)+' <span class="o">'+esc(r._fp.bk)+"</span>":'<span class="o">–</span>')+'</td><td class="n k"><span class="ev '+evCls(r._fev)+'">'+evTxt(r._fev)+"</span></td></tr>";
     if(on)h+='<tr class="det"><td colspan="15">'+detail(r)+"</td></tr>"});
   h+="</tbody></table></div>"+(list.length>150&&S.game==="all"?'<p class="note">Showing the top 150. Narrow by game or position to see the rest.</p>':"")+"</section>";
   return h}
@@ -275,19 +281,20 @@ function logTable(r){if(!r.log||!r.log.length)return'<p class="empty">No games o
 
 /* ---------- Games ---------- */
 function vGames(){
-  var gs=D.sched;if(!gs.length)return'<section class="panel"><p class="empty">No upcoming games with a betting line yet.</p></section>';
-  if(!S.gsel||!gm(S.gsel))S.gsel=(gs.filter(function(g){return g.wk===S.wk})[0]||gs[0]).gid;
-  var g=gm(S.gsel),od=oddsFor(g.gid),T=D.teams[String(D.season)]||{};
-  var h='<section class="panel"><div class="phead"><h2>Game sheet</h2><label class="f" for="selG">Game <select id="selG">'+gs.map(function(x){return '<option value="'+x.gid+'"'+(x.gid===g.gid?" selected":"")+">Wk "+x.wk+" · "+x.a+" @ "+x.h+" · "+x.t+"</option>"}).join("")+"</select></label></div>";
-  h+='<div class="matchhead"><div class="side"><h3>Away · implied</h3><span class="who">'+g.a+'</span><span class="big">'+f2(g.ia,1)+'</span></div><div class="mid"><b>'+g.tot+"</b>total<br>"+(g.sp>0?g.h+" −"+g.sp:g.sp<0?g.a+" −"+(-g.sp):"pick ’em")+"<br>"+esc(g.t)+(g.roof?"<br>"+esc(g.roof):"")+'</div><div class="side r"><h3>Home · implied</h3><span class="who">'+g.h+'</span><span class="big">'+f2(g.ih,1)+"</span></div></div>";
-  h+='<p class="note">'+(od.books.length?"Prices from "+od.books.length+" books, pulled "+esc((od.at||"").replace("T"," "))+" ET.":"No prices loaded for this game; the fair column is the price to beat.")+"</p>";
-  h+='<div class="grid2">'+[g.a,g.h].map(function(t){var opp=t===g.a?g.h:g.a,rows=D.picks.filter(function(r){return r.g===g.gid&&r.t===t}).map(calc).sort(function(a,b){return b.p-a.p}),o=T[t],d=T[opp]&&T[opp].d;
-    var s='<div class="panel" style="background:var(--bg)"><div class="phead"><h2>'+t+"</h2>"+(rows[0]?'<span class="tag">'+f2(rows[0].T)+" team TDs · "+pct(rows[0].sp)+" by run</span>":"")+"</div>";
-    if(o&&d)s+='<div class="kv"><span>'+t+" offence <b>"+f2(o.td)+"</b> TD/g ("+f2(o.rtd)+" rush, "+f2(o.ctd)+" rec)</span><span>"+opp+" defence allows <b>"+f2(d.td)+"</b> TD/g · RB <b>"+f2(d.rb)+"</b> · WR <b>"+f2(d.wr)+"</b> · TE <b>"+f2(d.te)+"</b> · QB <b>"+f2(d.qb)+"</b></span></div>";
-    s+='<div class="tw"><table><thead><tr><th>Player</th><th class="n k">Model</th><th class="n k">Fair</th><th class="n">Price</th><th class="n k">Edge</th><th class="n" title="Model fair first-TD price">1st fair</th><th class="n" title="Best first-TD price">1st price</th><th class="n k">1st edge</th><th class="n">Rush</th><th class="n">Tgt</th><th class="n">Snaps</th></tr></thead><tbody>'+rows.map(function(r){var id=r.g+"|"+r.id,on=S.open===id;
-      return '<tr class="pick'+(on?" on":"")+'" tabindex="0" data-open="'+esc(id)+'"><td><span class="tag pos">'+r.pos+'</span> <span class="pn">'+esc(r.n)+"</span>"+injTag(r)+pickTag(r)+'</td><td class="n k"><b>'+pct(r.p,1)+'</b></td><td class="n k">'+amer(r.p)+'</td><td class="n">'+(r._pr?fmtA(r._pr.a):"–")+'</td><td class="n k"><span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+'</span></td><td class="n">'+amer(r.pf)+'</td><td class="n">'+(r._fp?fmtA(r._fp.a):"–")+'</td><td class="n k"><span class="ev '+evCls(r._fev)+'">'+evTxt(r._fev)+'</span></td><td class="n">'+pct(r.rs)+'</td><td class="n">'+pct(r.ts)+'</td><td class="n">'+pct(r.sn)+"</td></tr>"+(on?'<tr class="det"><td colspan="11">'+detail(r)+"</td></tr>":"")}).join("")+"</tbody></table></div>";
-    var out=(g.out||{})[t]||[];if(out.length)s+='<p class="note"><b>Ruled out or doubtful:</b> '+out.map(function(x){return esc(x[0])+" ("+x[1]+(x[3]?", "+esc(x[3].toLowerCase()):"")+")"}).join(", ")+". Their chances are spread over the players listed.</p>";
-    return s+"</div>"}).join("")+"</div></section>";
+  var gs=D.sched.filter(function(g){return g.wk===S.wk});if(!gs.length)return'<section class="panel"><p class="empty">No upcoming games with a betting line yet.</p></section>';
+  var T=D.teams[String(D.season)]||{},all=poolWk(S.wk);
+  var h='<section class="panel"><div class="phead"><h2>Week '+S.wk+' game sheets</h2>'+(weeks().length>1?'<label class="f">Week '+seg("seg-wk",weeks().map(function(w){return[w,"Week "+w]}),S.wk)+"</label>":"")+"</div>";
+  h+='<div class="jump">'+gs.map(function(g){return '<a href="#game-'+g.gid+'" data-jump="game-'+g.gid+'">'+g.a+" @ "+g.h+"</a>"}).join("")+"</div></section>";
+  gs.forEach(function(g){var od=oddsFor(g.gid);
+    h+='<section class="panel" id="game-'+g.gid+'"><div class="matchhead"><div class="side"><h3>Away · implied</h3><span class="who tml">'+lg(g.a)+g.a+'</span><span class="big">'+f2(g.ia,1)+'</span></div><div class="mid"><b>'+g.tot+"</b>total<br>"+(g.sp>0?g.h+" −"+g.sp:g.sp<0?g.a+" −"+(-g.sp):"pick ’em")+"<br>"+esc(g.t)+(g.roof?"<br>"+esc(g.roof):"")+'</div><div class="side r"><h3>Home · implied</h3><span class="who tml">'+lg(g.h)+g.h+'</span><span class="big">'+f2(g.ih,1)+"</span></div></div>";
+    h+='<p class="note">'+(od.books.length?"Prices from "+od.books.length+" books, pulled "+esc((od.at||"").replace("T"," "))+" ET.":"No prices loaded for this game yet; the fair column is the price to beat.")+"</p>";
+    h+='<div class="grid2">'+[g.a,g.h].map(function(t){var opp=t===g.a?g.h:g.a,rows=all.filter(function(r){return r.g===g.gid&&r.t===t}).sort(function(a,b){return b.p-a.p}),o=T[t],d=T[opp]&&T[opp].d;
+      var s='<div class="gcard"><div class="phead"><h2 class="tml">'+lg(t)+t+"</h2>"+(rows[0]?'<span class="tag">'+f2(rows[0].T)+" team TDs · "+pct(rows[0].sp)+" by run</span>":"")+"</div>";
+      if(o&&d)s+='<div class="kv"><span>'+t+" offence <b>"+f2(o.td)+"</b> TD/g ("+f2(o.rtd)+" rush, "+f2(o.ctd)+" rec)</span><span>"+opp+" defence allows <b>"+f2(d.td)+"</b> TD/g · RB <b>"+f2(d.rb)+"</b> · WR <b>"+f2(d.wr)+"</b> · TE <b>"+f2(d.te)+"</b> · QB <b>"+f2(d.qb)+"</b></span></div>";
+      s+='<div class="tw"><table><thead><tr><th>Player</th><th class="n k">Model</th><th class="n k">Fair</th><th class="n">Price</th><th class="n k">Edge</th><th class="n" title="Model fair first-TD price">1st fair</th><th class="n" title="Best first-TD price">1st price</th><th class="n k">1st edge</th><th class="n">Rush</th><th class="n">Tgt</th><th class="n">Snaps</th></tr></thead><tbody>'+rows.map(function(r){var id=r.g+"|"+r.id,on=S.open===id;
+        return '<tr class="pick'+(on?" on":"")+'" tabindex="0" data-open="'+esc(id)+'"><td><span class="tag pos">'+r.pos+'</span> <span class="pn">'+esc(r.n)+"</span>"+injTag(r)+pickTag(r)+'</td><td class="n k"><b>'+pct(r.p,1)+'</b></td><td class="n k">'+amer(r.p)+'</td><td class="n">'+(r._pr?fmtA(r._pr.a):"–")+'</td><td class="n k"><span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+'</span></td><td class="n">'+amer(r.pf)+'</td><td class="n">'+(r._fp?fmtA(r._fp.a):"–")+'</td><td class="n k"><span class="ev '+evCls(r._fev)+'">'+evTxt(r._fev)+'</span></td><td class="n">'+pct(r.rs)+'</td><td class="n">'+pct(r.ts)+'</td><td class="n">'+pct(r.sn)+"</td></tr>"+(on?'<tr class="det"><td colspan="11">'+detail(r)+"</td></tr>":"")}).join("")+"</tbody></table></div>";
+      var out=(g.out||{})[t]||[];if(out.length)s+='<p class="note"><b>Ruled out or doubtful:</b> '+out.map(function(x){return esc(x[0])+" ("+x[1]+(x[3]?", "+esc(x[3].toLowerCase()):"")+")"}).join(", ")+". Their chances are spread over the players listed.</p>";
+      return s+"</div>"}).join("")+"</div></section>"});
   return h}
 
 /* ---------- Players ---------- */
@@ -300,7 +307,7 @@ function vPlayers(){
   var h='<section class="panel"><div class="phead"><h2>Player usage</h2><div class="filters"><label class="f">Season '+seg("seg-ps",ys.map(function(y){return[y,y]}),S.pseason)+'</label><label class="f">Position '+seg("seg-pp",[["all","All"],["RB","RB"],["WR","WR"],["TE","TE"],["QB","QB"]],S.ppos)+'</label><label class="f" for="pq">Find <input type="search" id="pq" placeholder="player or team" value="'+esc(S.pq)+'"></label></div></div>';
   h+='<p class="note">Season totals. <b>xTD</b> adds up every carry and target by how often a play from that spot scores, so it measures the chances a player was given. <b>TD − xTD</b> is the regression column: finishing above or below chance barely carries over from one stretch to the next.</p>';
   h+='<div class="tw"><table><thead><tr>'+PC.map(function(x){return '<th tabindex="0" data-ps="'+x[1]+'"'+(x[1]>2||x[1]===-1?' class="n"':"")+(x[2]?' title="'+esc(x[2])+'"':"")+(c===x[1]?' aria-sort="'+(dir>0?"ascending":"descending")+'"':"")+">"+x[0]+"</th>"}).join("")+"</tr></thead><tbody>";
-  rows.slice(0,250).forEach(function(r){var df=r[11]-r[10];h+='<tr><td class="pn">'+esc(r[0])+'</td><td><span class="tm">'+r[1]+'</span></td><td><span class="tag pos">'+r[2]+'</span></td><td class="n">'+r[3]+'</td><td class="n">'+pct(r[4])+'</td><td class="n">'+r[5]+'</td><td class="n">'+r[6]+'</td><td class="n">'+r[7]+'</td><td class="n">'+r[8]+'</td><td class="n">'+r[9]+'</td><td class="n k">'+f2(r[10])+'</td><td class="n k">'+r[11]+'</td><td class="n">'+(df>0?"+":"")+f2(df)+'</td><td class="n">'+r[12]+" of "+r[3]+'</td><td class="n">'+pct(r[13])+'</td><td class="n">'+pct(r[14])+"</td></tr>"});
+  rows.slice(0,250).forEach(function(r){var df=r[11]-r[10];h+='<tr><td class="pn">'+esc(r[0])+'</td><td>'+tmL(r[1])+'</td><td><span class="tag pos">'+r[2]+'</span></td><td class="n">'+r[3]+'</td><td class="n">'+pct(r[4])+'</td><td class="n">'+r[5]+'</td><td class="n">'+r[6]+'</td><td class="n">'+r[7]+'</td><td class="n">'+r[8]+'</td><td class="n">'+r[9]+'</td><td class="n k">'+f2(r[10])+'</td><td class="n k">'+r[11]+'</td><td class="n">'+(df>0?"+":"")+f2(df)+'</td><td class="n">'+r[12]+" of "+r[3]+'</td><td class="n">'+pct(r[13])+'</td><td class="n">'+pct(r[14])+"</td></tr>"});
   return h+"</tbody></table></div>"+(rows.length>250?'<p class="note">Showing 250 of '+rows.length+". Filter to see more.</p>":"")+"</section>"}
 
 /* ---------- Teams ---------- */
@@ -315,7 +322,7 @@ function vTeams(){
   var h='<section class="panel"><div class="phead"><h2>'+(off?"Team offence":"Team defence")+'</h2><div class="filters"><label class="f">Side '+seg("seg-tv",[["off","Offence"],["def","Defence"]],S.tview)+'</label><label class="f">Season '+seg("seg-ps",ys.map(function(y){return[y,y]}),S.pseason)+"</label></div></div>";
   h+='<p class="note">'+(off?"How each offence makes its touchdown chances. A high run part with a concentrated backfield is where running-back prices are easiest to trust.":"What each defence gives up and to whom. In testing, adjusting for the defence added almost nothing to accuracy once the betting total was in, so the model only nudges for it. Use this page for a tiebreak, not a reason.")+"</p>";
   h+='<div class="tw"><table><thead><tr>'+cols.map(function(c,i){return '<th tabindex="0" data-ts="'+i+'"'+(i?' class="n"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(so[0]===i?' aria-sort="'+(so[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+"</tr></thead><tbody>";
-  rows.forEach(function(t){h+='<tr><td><span class="tm">'+t+"</span></td>"+cols.slice(1).map(function(c){var v=get(t,c[1]);return '<td class="n">'+(c[1]==="_rp"?pct(v):c[1]==="g"?v:c[1]==="_fn"?(v>0?"+":"")+f2(v):f2(v,c[1]==="imp"||c[1]==="rz"?1:2))+"</td>"}).join("")+"</tr>"});
+  rows.forEach(function(t){h+="<tr><td>"+tmL(t)+"</td>"+cols.slice(1).map(function(c){var v=get(t,c[1]);return '<td class="n">'+(c[1]==="_rp"?pct(v):c[1]==="g"?v:c[1]==="_fn"?(v>0?"+":"")+f2(v):f2(v,c[1]==="imp"||c[1]==="rz"?1:2))+"</td>"}).join("")+"</tr>"});
   return h+"</tbody></table></div></section>"}
 
 /* ---------- Tracker ---------- */
@@ -326,7 +333,11 @@ function storedPrice(r){var o=(D.odds||{})[r[2]];if(!o)return null;var k=norm(r[
   return o._ix[k]||null}
 function gradeAll(rows){var out=[];rows.forEach(function(r){var sp=storedPrice(r);if(!sp)return;var d=dec(sp[0]);out.push({r:r,a:sp[0],bk:sp[1],e:r[7]*d-1,k:(r[7]*d-1)/(d-1),pl:r[8]?d-1:-1})});return out}
 function isPk(b){return b.r[7]>=PK.p&&b.e>=PK.lo&&b.e<=PK.hi}
-var _rec;function pickRecord(){if(_rec!==undefined)return _rec;var x=gradeAll(D.trk||[]).filter(isPk),u=0;x.forEach(function(b){u+=b.pl});return _rec=x.length?{n:x.length,u:u}:null}
+function top8(pk){var by={},out=[];pk.forEach(function(b){var k=b.r[0]+"|"+b.r[1];(by[k]=by[k]||[]).push(b)});Object.keys(by).forEach(function(k){out=out.concat(by[k].sort(function(a,b){return b.r[7]-a.r[7]}).slice(0,8))});return out}
+function firstPrice(r){var o=(D.odds||{})[r[2]];if(!o)return null;if(!o._fx){o._fx={};(o.bestf||[]).forEach(function(x){o._fx[norm(x[0])]=[x[1],x[2]]});
+    if(o.f)Object.keys(o.f).forEach(function(bk){o.f[bk].forEach(function(x){var n=norm(x[0]);if(!o._fx[n]||dec(x[1])>dec(o._fx[n][0]))o._fx[n]=[x[1],bk]})})}
+  return o._fx[norm(r[3])]||null}
+var _rec;function pickRecord(){if(_rec!==undefined)return _rec;var x=gradeAll(D.trk||[]).filter(isPk),u=0,t=top8(x),u8=0;x.forEach(function(b){u+=b.pl});t.forEach(function(b){u8+=b.pl});return _rec=x.length?{n:x.length,u:u,n8:t.length,u8:u8}:null}
 function wkLab(s,w){var n=s>=2021?18:17;return w<=n?String(w):["WC","DIV","CONF","SB"][w-n-1]||String(w)}
 function recTable(title,bands,rows,keyf,labf){
   return '<div><h3>'+title+'</h3><div class="tw"><table class="mini"><thead><tr><th></th><th class="n">Bets</th><th class="n">Won</th><th class="n">Hit rate</th><th class="n" title="Average model chance">Model</th><th class="n" title="Units won or lost, one unit per bet">Units</th><th class="n k" title="Return per unit staked">Return</th></tr></thead><tbody>'+bands.map(function(b){var x=rows.filter(function(r){var v=keyf(r);return v>=b[0]&&v<b[1]}),w=0,u=0,e=0;x.forEach(function(r){w+=r.r[8];u+=r.pl;e+=r.r[7]});
@@ -348,6 +359,7 @@ function vTracker(){
     var pk=pr.filter(isPk),allPk=gradeAll(all).filter(isPk),big=pr.filter(function(b){return b.r[7]>=PK.p&&b.e>PK.hi}),no=pr.filter(function(b){return b.r[7]>=PK.p&&b.e<-0.03});
     var line=function(lab,x,note){var w=0,u=0;x.forEach(function(b){w+=b.r[8];u+=b.pl});return "<tr><td>"+lab+'</td><td class="n">'+x.length+'</td><td class="n">'+w+'</td><td class="n">'+(x.length?pct(w/x.length):"–")+'</td><td class="n">'+(x.length?(u>=0?"+":"")+f2(u,1):"–")+'</td><td class="n k"><span class="ev '+(x.length?evCls(u/x.length):"")+'">'+(x.length?evTxt(u/x.length):"–")+'</span></td><td class="o" style="white-space:normal">'+note+"</td></tr>"};
     h+='<h3>The Picks rule, graded</h3><div class="tw"><table class="mini"><thead><tr><th></th><th class="n">Bets</th><th class="n">Won</th><th class="n">Hit rate</th><th class="n">Units</th><th class="n k">Return</th><th></th></tr></thead><tbody>'+
+      line("<b>Top 8</b> · "+(S.twk?"this week":S.tseason),top8(pk),"The eight likeliest Ledger picks each week")+line("Top 8 · every stored game",top8(allPk),"Both seasons together")+
       line("<b>Ledger picks</b> · "+(S.twk?"this week":S.tseason),pk,"Chance 20%+, edge 3% to 25%")+line("Ledger picks · every stored game",allPk,"Both seasons together")+
       line("Edge above 25%",big,"Chance 20%+. The book usually knows something")+line("Model says overpriced",no,"Chance 20%+, edge below −3%. The bets to skip")+"</tbody></table></div>";
     var byW={};pk.forEach(function(b){var w=b.r[1];(byW[w]=byW[w]||{n:0,w:0,u:0});byW[w].n++;byW[w].w+=b.r[8];byW[w].u+=b.pl});
@@ -361,10 +373,14 @@ function vTracker(){
       recTable("Value picks by price",[[-9999,100],[100,200],[200,400],[400,800],[800,99999]],val,function(b){return b.a},function(b){return b[0]<0?"Odds-on":b[1]>9999?"+800 and longer":"+"+b[0]+" to +"+b[1]})+"</div>";
     h+='<p class="note">Look for rows that stay green as games pile up; that is where a betting rule comes from. A row needs a few hundred bets before its return means much. The best price across books flatters the result a little if you only bet at one book.</p>';
     var lst=val.slice().sort(function(a,b){return b.r[1]-a.r[1]||b.e-a.e});
-    h+='<h3>Value picks, newest first</h3><div class="tw"><table><thead><tr><th>Wk</th><th>Player</th><th>Game</th><th class="n">Model</th><th class="n">Price</th><th class="n">Edge</th><th>Result</th><th class="n">Units</th></tr></thead><tbody>'+lst.slice(0,300).map(function(b){var r=b.r;return "<tr><td>"+wkLab(r[0],r[1])+'</td><td><span class="tag pos">'+r[6]+'</span> <span class="pn">'+esc(r[3])+'</span></td><td><span class="tm">'+r[4]+'</span> <span class="o">v '+r[5]+'</span></td><td class="n">'+pct(r[7],1)+'</td><td class="n">'+fmtA(b.a)+' <span class="o">'+esc(b.bk||"")+'</span></td><td class="n"><span class="ev '+evCls(b.e)+'">'+evTxt(b.e)+"</span></td><td>"+(r[8]?'<span class="tag w">Scored'+(r[9]>1?" ×"+r[9]:"")+"</span>":'<span class="tag l">No TD</span>')+'</td><td class="n">'+(b.pl>=0?"+":"")+f2(b.pl)+"</td></tr>"}).join("")+"</tbody></table></div>"+(lst.length>300?'<p class="note">Showing 300 of '+lst.length+". Pick a week to see the rest.</p>":"")}
+    h+='<h3>Value picks, newest first</h3><div class="tw"><table><thead><tr><th>Wk</th><th>Player</th><th>Game</th><th class="n">Model</th><th class="n">Price</th><th class="n">Edge</th><th>Result</th><th class="n">Units</th></tr></thead><tbody>'+lst.slice(0,300).map(function(b){var r=b.r;return "<tr><td>"+wkLab(r[0],r[1])+'</td><td><span class="tag pos">'+r[6]+'</span> <span class="pn">'+esc(r[3])+'</span></td><td>'+tmL(r[4])+' <span class="o">v '+r[5]+'</span></td><td class="n">'+pct(r[7],1)+'</td><td class="n">'+fmtA(b.a)+' <span class="o">'+esc(b.bk||"")+'</span></td><td class="n"><span class="ev '+evCls(b.e)+'">'+evTxt(b.e)+"</span></td><td>"+(r[8]?'<span class="tag w">Scored'+(r[9]>1?" ×"+r[9]:"")+"</span>":'<span class="tag l">No TD</span>')+'</td><td class="n">'+(b.pl>=0?"+":"")+f2(b.pl)+"</td></tr>"}).join("")+"</tbody></table></div>"+(lst.length>300?'<p class="note">Showing 300 of '+lst.length+". Pick a week to see the rest.</p>":"")}
   else h+='<p class="note"><b>No stored prices for '+(S.twk?"this week":S.tseason)+" yet.</b> Load them once from Actions → Update → Run workflow, choosing which seasons under past prices.</p>";
+  var fr=[];rows.forEach(function(r){if(r[10]==null)return;var sp=firstPrice(r);if(!sp)return;var d=dec(sp[0]);fr.push({r:[r[0],r[1],r[2],r[3],r[4],r[5],r[6],r[10],r[11],r[11]],a:sp[0],bk:sp[1],e:r[10]*d-1,pl:r[11]?d-1:-1})});
+  if(fr.length)h+='<h2 class="sep">First touchdown</h2><p class="note">First-TD chances against the stored first-TD price, best book, one unit each. '+fr.length+" priced players. This market has far more built-in margin than anytime, so expect most rows to be red, and wait for a few hundred bets before trusting a green one.</p>"+'<div class="grid2">'+recTable("First TD by edge",[[0.5,99],[0.25,0.5],[0.1,0.25],[0.03,0.1],[-0.03,0.03],[-0.15,-0.03],[-9,-0.15]],fr,function(b){return b.e},function(b){return b[0]<-1?"Worse than −15%":b[1]>9?"+50% and up":(b[0]>=0?"+":"")+Math.round(b[0]*100)+"% to "+(b[1]>0?"+":"")+Math.round(b[1]*100)+"%"})+
+    recTable("First TD by model chance, edge 3%+",[[0.12,1],[0.08,0.12],[0.05,0.08],[0.03,0.05],[0,0.03]],fr.filter(function(b){return b.e>=0.03}),function(b){return b.r[7]},function(b){return Math.round(b[0]*100)+"–"+Math.round(b[1]*100)+"%"})+"</div>";
+  else if(S.tseason===D.season)h+='<h2 class="sep">First touchdown</h2><p class="note">No first-TD prices stored for '+(S.twk?"this week":S.tseason)+" yet. Load this season's once from Actions → Update → Run workflow → this season first TD. New games are stored automatically.</p>";
   var top=rows.slice().sort(function(a,b){return b[1]-a[1]||b[7]-a[7]}).filter(function(r){return r[7]>=0.3});
-  h+='<h3>Players the model had at 30% or better</h3><div class="tw"><table><thead><tr><th>Wk</th><th>Player</th><th>Game</th><th class="n">Model</th><th class="n">Fair</th><th class="n">Stored price</th><th>Result</th></tr></thead><tbody>'+top.slice(0,200).map(function(r){var sp=storedPrice(r);return "<tr><td>"+wkLab(r[0],r[1])+'</td><td><span class="tag pos">'+r[6]+'</span> <span class="pn">'+esc(r[3])+'</span></td><td><span class="tm">'+r[4]+'</span> <span class="o">v '+r[5]+'</span></td><td class="n">'+pct(r[7],1)+'</td><td class="n">'+amer(r[7])+'</td><td class="n">'+(sp?fmtA(sp[0]):"–")+"</td><td>"+(r[8]?'<span class="tag w">Scored'+(r[9]>1?" ×"+r[9]:"")+"</span>":'<span class="tag l">No TD</span>')+"</td></tr>"}).join("")+"</tbody></table></div>"+(top.length>200?'<p class="note">Showing 200 of '+top.length+". Pick a week to see the rest.</p>":"")+"</section>";
+  h+='<h3>Players the model had at 30% or better</h3><div class="tw"><table><thead><tr><th>Wk</th><th>Player</th><th>Game</th><th class="n">Model</th><th class="n">Fair</th><th class="n">Stored price</th><th>Result</th></tr></thead><tbody>'+top.slice(0,200).map(function(r){var sp=storedPrice(r);return "<tr><td>"+wkLab(r[0],r[1])+'</td><td><span class="tag pos">'+r[6]+'</span> <span class="pn">'+esc(r[3])+'</span></td><td>'+tmL(r[4])+' <span class="o">v '+r[5]+'</span></td><td class="n">'+pct(r[7],1)+'</td><td class="n">'+amer(r[7])+'</td><td class="n">'+(sp?fmtA(sp[0]):"–")+"</td><td>"+(r[8]?'<span class="tag w">Scored'+(r[9]>1?" ×"+r[9]:"")+"</span>":'<span class="tag l">No TD</span>')+"</td></tr>"}).join("")+"</tbody></table></div>"+(top.length>200?'<p class="note">Showing 200 of '+top.length+". Pick a week to see the rest.</p>":"")+"</section>";
   return h}
 
 /* ---------- Model ---------- */
@@ -426,6 +442,7 @@ document.addEventListener("click",function(e){
   if((b=t.closest("#tabs button"))){S.tab=b.dataset.tab;S.open=null;try{history.replaceState(null,"","#"+S.tab)}catch(x){}render();return}
   if((b=t.closest(".seg button"))){var id=b.parentNode.id,v=b.dataset.v;
     ({"seg-wk":function(){S.wk=+v;S.game="all";S.open=null},"seg-minp":function(){S.minp=+v},"seg-sort":function(){S.sort=v},"seg-pos":function(){S.pos=v},"seg-priced":function(){S.priced=+v},"seg-ps":function(){S.pseason=v},"seg-pp":function(){S.ppos=v},"seg-tv":function(){S.tview=v},"seg-tss":function(){S.tseason=+v;S.twk=0}}[id]||function(){})();render(true);return}
+  if((b=t.closest("[data-jump]"))){e.preventDefault();var el=$(b.dataset.jump);if(el)el.scrollIntoView({behavior:"smooth",block:"start"});return}
   if(t.closest("[data-clear]")){var f=t.closest("form");delete MAN[f.dataset.price];ls("atd-manual",MAN);render(true);return}
   if(t.closest("#pasteBtn")){paste();return}
   if(t.closest("form,input,textarea,select,details.how,.det"))return;
@@ -437,7 +454,7 @@ document.addEventListener("click",function(e){
 });
 document.addEventListener("keydown",function(e){if((e.key==="Enter"||e.key===" ")&&e.target.matches("tr.pick,th[tabindex]")){e.preventDefault();e.target.click()}});
 document.addEventListener("change",function(e){var t=e.target;
-  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.id==="selBook"){S.book=t.value;render(true)}else if(t.id==="selG"){S.gsel=t.value;S.open=null;render(true)}else if(t.id==="selTw"){S.twk=+t.value;render(true)}});
+  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.id==="selBook"){S.book=t.value;render(true)}else if(t.id==="selTw"){S.twk=+t.value;render(true)}});
 document.addEventListener("input",function(e){if(e.target.id==="pq"){S.pq=e.target.value;render(true)}});
 document.addEventListener("toggle",function(e){if(e.target.id==="how")S.howOpen=e.target.open},true);
 document.addEventListener("submit",function(e){e.preventDefault();var f=e.target;
