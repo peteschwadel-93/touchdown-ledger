@@ -180,7 +180,7 @@ code{font:400 12.5px var(--mono);background:var(--sunk);padding:2px 6px;border-r
 "use strict";
 var $=function(id){return document.getElementById(id)};
 var D=null,served=/^https?:$/.test(location.protocol)&&/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-var S={book:"best",tab:"picks",wk:null,sort:"value",pos:"all",game:"all",minp:0.1,priced:0,open:null,gsel:null,pseason:null,ppos:"all",pq:"",psort:[10,-1],tview:"off",bsort:null,gsort:null,tseason:null,hs:null,hw:null,tsort:{off:[1,-1],def:[1,-1]},twk:0,pk:{}};
+var S={book:"best",tab:"picks",wk:null,sort:"value",pos:"all",game:"all",minp:0.1,priced:0,open:null,gsel:null,pseason:null,ppos:"all",pq:"",psort:[10,-1],tview:"off",bsort:null,gsort:null,tseason:null,hs:null,hw:null,tsort:{off:[1,-1],def:[1,-1]},twk:0,fss:null,fwk:null,pk:{}};
 function ls(k,v){try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||"null");localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
 var MAN=ls("atd-manual")||{},PASTE=ls("atd-paste")||{};
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
@@ -409,29 +409,43 @@ function vGames(){
 /* ---------- TD Feed ---------- */
 var FC=[["Time",function(e){return e.wc||""},"When it was scored, in your time zone. ≈ means estimated from the kickoff time and game clock","",-1],["Team",function(e){return e.team},"","",1],["Player",function(e){return e.name},"","",1],["Opponent",function(e){return e.team?(e.team===e.g.h?e.g.a:e.g.h):e.g.a},"","",1],["Clock",function(e){return e.g.ts+("0"+(e.per||0)).slice(-2)+(e.clk?("0000"+(3600-(parseInt(e.clk,10)*60+(+e.clk.split(":")[1]||0)))).slice(-4):"")},"Quarter and game clock","",-1],["Type",function(e){return e.kind},"Rushing, receiving or a return","",1],
   ["TD #",function(e){return e.nth},"His touchdowns so far in this game","n",-1],["Model",function(e){return e.p},"The model's chance he would score","n k",-1],["Fair",function(e){return e.p},"","n k",-1],
-  ["Price",function(e){return e.pr?dec(e.pr.a):null},"Pre-kickoff price at the chosen book","n",-1],["Edge",function(e){return e.ev},"","n k",-1],["Blend",function(e){return e.k},"Kelly stake: value weighted by likelihood","n",-1],["Units",function(e){return e.units},"Profit on one unit; counted once per player","n",-1]];
+  ["Price",function(e){return e.pr?dec(e.pr.a):null},"Pre-kickoff price at the chosen book","n",-1],["Edge",function(e){return e.ev},"","n k",-1],["Blend",function(e){return e.kel},"Kelly stake: value weighted by likelihood","n",-1],["Units",function(e){return e.units},"Profit on one unit; counted once per player","n",-1]];
 function estClock(g,per,clk){if(!per||!clk)return"";var m=/^(\d+):(\d+)/.exec(clk);if(!m)return"";var played=(Math.min(per,5)-1)*15+(15-(+m[1]+m[2]/60));
   var t=new Date(g.ts).getTime()+(played*3.05+(per>2?13:0)+2)*60000;return new Date(t).toISOString()}     /* about three real minutes per game minute, plus halftime */
-function feedRows(){var out=[],L=D.live||{};
-  D.sched.forEach(function(g){var rec=L[g.gid];if(!rec)return;var cnt={},rows=D.picks.filter(function(r){return r.g===g.gid}).map(calc),by={};rows.forEach(function(r){by[norm(r.n)]=r});
+function feedWeeks(s){var w={};(D.feed||[]).forEach(function(r){if(r[0]===s)w[r[1]]=1});if(s===D.season)D.sched.forEach(function(g){if((D.live||{})[g.gid])w[g.wk]=1});return Object.keys(w).map(Number).sort(function(a,b){return a-b})}
+function feedPast(season,wk,out){var L=D.live||{},trk={},tag={},cnt={},seen={},W=weekPicks(season,wk);
+  (D.trk||[]).forEach(function(r){if(r[0]===season&&r[1]===wk)trk[r[2]+"|"+norm(r[3])]=r});
+  W.picks.forEach(function(c){tag[norm(c.n)+"|"+c.t]={pick:1,top:c.top}});W.ls.forEach(function(c){if(c.lsTop)tag[norm(c.n)+"|"+c.t]={ls:1}});
+  (D.feed||[]).forEach(function(f){if(f[0]!==season||f[1]!==wk||L[f[2]])return;var gp=f[2].split("_"),g={gid:f[2],a:gp[2],h:gp[3],wk:wk,ts:f[2]},k=norm(f[3]),r=trk[f[2]+"|"+k],c=r?cardPast(r):null,tg=tag[k+"|"+f[4]]||{},ck=f[2]+"|"+k;
+    cnt[ck]=(cnt[ck]||0)+1;var first=!seen[f[2]];seen[f[2]]=1;var d=c&&c.pr?dec(c.pr.a):null;
+    out.push({g:g,k:k,row:c?{_top:!!tg.top,_pick:!!tg.pick,_lst:!!tg.ls,_ev:c.ev,p:c.p}:null,name:f[3],team:f[4],pos:f[5],kind:f[8],per:f[6],clk:f[7],wc:f[9]||f[2]+"#"+("00"+out.length).slice(-3),est:false,
+      nth:cnt[ck],first:first,p:c?c.p:null,pr:c?c.pr:null,ev:c?c.ev:null,kel:d?c.ev/(d-1):null,units:d&&cnt[ck]===1?d-1:null,st:"post",past:1})});return out}
+function feedRows(season,wk){var out=[],L=D.live||{};
+  if(season===D.season)D.sched.forEach(function(g){var rec=L[g.gid];if(!rec||g.wk!==wk)return;var cnt={},rows=D.picks.filter(function(r){return r.g===g.gid}).map(calc),by={};rows.forEach(function(r){by[norm(r.n)]=r});
     weekPicks(D.season,g.wk);
     var evs=(rec.ev&&rec.ev.length)?rec.ev:Object.keys(rec.td||{}).map(function(k){return[k,null,"","TD",""]});
     evs.forEach(function(e,i){var k=e[0],r=k?by[k]:null,nm=k&&rec.nm&&rec.nm[k]||null;if(k)cnt[k]=(cnt[k]||0)+1;
       out.push({g:g,k:k,row:r,name:r?r.n:nm?nm[0]:k?k.replace(/\b[a-z]/g,function(c){return c.toUpperCase()}):"Unattributed",team:r?r.t:nm?nm[1]:"",pos:r?r.pos:"",kind:e[3],per:e[1],clk:e[2],wc:e[4]||estClock(g,e[1],e[2])||g.ts+"#"+("00"+i).slice(-3),est:!e[4],
-        nth:k?cnt[k]:1,first:i===0&&!!(rec.ev&&rec.ev.length),p:r?r.p:null,pr:r?r._pr:null,ev:r?r._ev:null,k:r?r._k:null,units:r&&r._pr&&cnt[k]===1?dec(r._pr.a)-1:null,st:rec.st})})});
+        nth:k?cnt[k]:1,first:i===0&&!!(rec.ev&&rec.ev.length),p:r?r.p:null,pr:r?r._pr:null,ev:r?r._ev:null,kel:r?r._k:null,units:r&&r._pr&&cnt[k]===1?dec(r._pr.a)-1:null,st:rec.st})})});
+  feedPast(season,wk,out);
   return out}
 function vFeed(){
-  var rows=feedRows(),so=S.fsort||[0,-1],f=FC[so[0]][1];
+  var ss={};(D.feed||[]).forEach(function(r){ss[r[0]]=1});ss[D.season]=1;ss=Object.keys(ss).map(Number).sort();if(ss.indexOf(S.fss)<0)S.fss=D.season;
+  var wl=feedWeeks(S.fss),lw=S.fss===D.season?D.sched.filter(function(g){return (D.live||{})[g.gid]}).map(function(g){return g.wk}):[];
+  if(wl.indexOf(S.fwk)<0)S.fwk=lw.length?Math.max.apply(null,lw):wl.length?wl[wl.length-1]:null;
+  var rows=S.fwk==null?[]:feedRows(S.fss,S.fwk),so=S.fsort||[0,-1],f=FC[so[0]][1];
   rows.sort(function(a,b){var x=f(a),y=f(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return (typeof x==="string"?x.localeCompare(y):x-y)*so[1]});
   var scorers={},t8=0,pk=0,ls=0;rows.forEach(function(e){if(!e.k||scorers[e.k+e.g.gid])return;scorers[e.k+e.g.gid]=1;if(e.row){if(e.row._top)t8++;if(e.row._pick)pk++;if(e.row._lst)ls++}});
-  var liveGames=D.sched.filter(function(g){return (D.live||{})[g.gid]}),inProg=liveGames.filter(function(g){return D.live[g.gid].st==="in"}).length;
-  var h='<section class="panel"><div class="phead"><h2>TD feed</h2><div class="filters"><span class="tag">'+rows.length+" touchdowns · "+Object.keys(scorers).length+' scorers</span><span class="tag'+(t8?" t8":"")+'">Top 8: '+t8+'</span><span class="tag'+(pk?" pk":"")+'">Ledger picks: '+pk+'</span><span class="tag'+(ls?" lsg":"")+'">Long shots: '+ls+"</span></div></div>";
-  h+='<p class="note">Every touchdown in games that have kicked off and are not yet in the official record: '+liveGames.length+" game"+(liveGames.length===1?"":"s")+", "+inProg+' in progress. Newest first; click a heading to sort. Gold rows are the first touchdown of a game; green rows are your Ledger picks. Checked every minute while this page is open. <span id="liveMsg"></span> Prices and edges are the pre-kickoff numbers at the book chosen on the Picks board.</p>';
-  if(!rows.length)return h+'<p class="empty">'+(liveGames.length?"No touchdowns yet.":"No games under way. Touchdowns appear here within about a minute once games kick off.")+"</p></section>";
+  var liveGames=S.fss===D.season?D.sched.filter(function(g){return (D.live||{})[g.gid]&&g.wk===S.fwk}):[],inProg=liveGames.filter(function(g){return D.live[g.gid].st==="in"}).length,ng={};rows.forEach(function(e){ng[e.g.gid]=1});
+  var h='<section class="panel"><div class="phead"><h2>TD feed'+(S.fwk!=null?" · "+wkFull(S.fss,S.fwk)+(ss.length>1?" · "+S.fss:""):"")+'</h2><div class="filters"><span class="tag">'+rows.length+" touchdowns · "+Object.keys(scorers).length+' scorers</span><span class="tag'+(t8?" t8":"")+'">Top 8: '+t8+'</span><span class="tag'+(pk?" pk":"")+'">Ledger picks: '+pk+'</span><span class="tag'+(ls?" lsg":"")+'">Long shots: '+ls+"</span>"+
+    (ss.length>1?'<label class="f">Season '+seg("seg-fss",ss.map(function(y){return[y,y]}),S.fss)+"</label>":"")+
+    (wl.length?wkNav("fw",wl,S.fwk,'<select id="selFw" aria-label="Week">'+wl.map(function(w){return '<option value="'+w+'"'+(w===S.fwk?" selected":"")+">"+wkFull(S.fss,w)+"</option>"}).join("")+"</select>"):"")+"</div></div>";
+  h+='<p class="note">Every touchdown of the week, '+Object.keys(ng).length+" game"+(Object.keys(ng).length===1?"":"s")+(liveGames.length?" ("+inProg+" in progress, checked every minute while this page is open)":"")+'. Finished games come from the official play-by-play; games under way come from the live scoreboard, where ≈ marks an estimated time. Newest first; click a heading to sort. Gold rows are the first touchdown of a game; green rows are your Ledger picks. <span id="liveMsg"></span> Prices and edges are the pre-kickoff numbers'+(S.fss===D.season&&liveGames.length?" at the book chosen on the Picks board; finished games use the best stored price":" at the best stored price")+".</p>";
+  if(!rows.length)return h+'<p class="empty">'+(liveGames.length?"No touchdowns yet.":"No touchdowns to show. They appear here within about a minute once games kick off.")+"</p></section>";
   h+='<div class="tw"><table class="feed"><thead><tr>'+FC.map(function(c,i){return '<th tabindex="0" data-fs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(so[0]===i?' aria-sort="'+(so[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+"</tr></thead><tbody>";
   rows.forEach(function(e){var when=e.per?(e.per>4?"OT":"Q"+e.per)+" "+e.clk:"";
     var dt=/^\d{4}-\d\d-\d\dT/.test(e.wc)&&e.wc.indexOf("#")<0?new Date(e.wc):null,stamp=dt&&!isNaN(dt)?(e.est?"≈ ":"")+dt.toLocaleString([],{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"–";
-    h+='<tr class="'+(e.first?"scf":e.row&&(e.row._pick||e.row._top)?"sc":"")+'"><td>'+esc(stamp)+'</td><td>'+(e.team?tmL(e.team):"")+'</td><td>'+(e.pos?'<span class="tag pos">'+e.pos+"</span> ":"")+'<span class="pn">'+esc(e.name)+"</span>"+(e.first?' <span class="tag fst">First TD</span>':"")+(e.row?pickTag0(e.row)+(e.row._lst?' <span class="tag lsg">Long shot</span>':""):"")+'</td><td><span class="o">'+(e.team?(e.team===e.g.h?"vs "+e.g.a:"@ "+e.g.h):e.g.a+" @ "+e.g.h)+"</span></td><td>"+esc(when)+(e.st==="post"?' <span class="o">· final</span>':"")+"</td><td>"+e.kind+'</td><td class="n">'+e.nth+'</td><td class="n k">'+(e.p!=null?"<b>"+pct(e.p,1)+"</b>":"–")+'</td><td class="n k">'+(e.p!=null?amer(e.p):"–")+'</td><td class="n">'+(e.pr?fmtA(e.pr.a)+" "+bkAb(e.pr.bk):"–")+'</td><td class="n k"><span class="ev '+evCls(e.ev)+'">'+evTxt(e.ev)+'</span></td><td class="n">'+(e.k==null?"–":e.k>0?(e.k*100).toFixed(1)+"%":"0")+'</td><td class="n">'+(e.units!=null?"+"+f2(e.units):"–")+"</td></tr>"});
+    h+='<tr class="'+(e.first?"scf":e.row&&(e.row._pick||e.row._top)?"sc":"")+'"><td>'+esc(stamp)+'</td><td>'+(e.team?tmL(e.team):"")+'</td><td>'+(e.pos?'<span class="tag pos">'+e.pos+"</span> ":"")+'<span class="pn">'+esc(e.name)+"</span>"+(e.first?' <span class="tag fst">First TD</span>':"")+(e.row?pickTag0(e.row)+(e.row._lst?' <span class="tag lsg">Long shot</span>':""):"")+'</td><td><span class="o">'+(e.team?(e.team===e.g.h?"vs "+e.g.a:"@ "+e.g.h):e.g.a+" @ "+e.g.h)+"</span></td><td>"+esc(when)+(e.st==="post"&&!e.past?' <span class="o">· final</span>':"")+"</td><td>"+e.kind+'</td><td class="n">'+e.nth+'</td><td class="n k">'+(e.p!=null?"<b>"+pct(e.p,1)+"</b>":"–")+'</td><td class="n k">'+(e.p!=null?amer(e.p):"–")+'</td><td class="n">'+(e.pr?fmtA(e.pr.a)+" "+bkAb(e.pr.bk):"–")+'</td><td class="n k"><span class="ev '+evCls(e.ev)+'">'+evTxt(e.ev)+'</span></td><td class="n">'+(e.kel==null?"–":e.kel>0?(e.kel*100).toFixed(1)+"%":"0")+'</td><td class="n">'+(e.units!=null?"+"+f2(e.units):"–")+"</td></tr>"});
   return h+"</tbody></table></div></section>"}
 
 /* ---------- Players ---------- */
@@ -584,8 +598,8 @@ document.addEventListener("click",function(e){
   var t=e.target,b;
   if((b=t.closest("#tabs button"))){S.tab=b.dataset.tab;S.open=null;try{history.replaceState(null,"","#"+S.tab)}catch(x){}render();return}
   if((b=t.closest(".seg button"))){var id=b.parentNode.id,v=b.dataset.v;
-    ({"seg-wk":function(){S.wk=+v;S.game="all";S.open=null},"seg-minp":function(){S.minp=+v},"seg-sort":function(){S.sort=v;S.bsort=null},"seg-pos":function(){S.pos=v},"seg-priced":function(){S.priced=+v},"seg-ps":function(){S.pseason=v},"seg-pp":function(){S.ppos=v},"seg-tv":function(){S.tview=v},"seg-tss":function(){S.tseason=+v;S.twk=0},"seg-hs":function(){S.hs=+v;S.hw=null;S.open=null}}[id]||function(){})();render(true);return}
-  if((b=t.closest("[data-nav]"))){if(b.dataset.to==="")return;var to=+b.dataset.to;if(b.dataset.nav==="hw"){S.hw=to;S.game="all";S.open=null}else S.twk=to;render(true);return}
+    ({"seg-wk":function(){S.wk=+v;S.game="all";S.open=null},"seg-minp":function(){S.minp=+v},"seg-sort":function(){S.sort=v;S.bsort=null},"seg-pos":function(){S.pos=v},"seg-priced":function(){S.priced=+v},"seg-ps":function(){S.pseason=v},"seg-pp":function(){S.ppos=v},"seg-tv":function(){S.tview=v},"seg-tss":function(){S.tseason=+v;S.twk=0},"seg-fss":function(){S.fss=+v;S.fwk=null},"seg-hs":function(){S.hs=+v;S.hw=null;S.open=null}}[id]||function(){})();render(true);return}
+  if((b=t.closest("[data-nav]"))){if(b.dataset.to==="")return;var to=+b.dataset.to;if(b.dataset.nav==="hw"){S.hw=to;S.game="all";S.open=null}else if(b.dataset.nav==="fw")S.fwk=to;else S.twk=to;render(true);return}
   if((b=t.closest("[data-jump]"))){e.preventDefault();var el=$(b.dataset.jump);if(el)el.scrollIntoView({behavior:"smooth",block:"start"});return}
   if(t.closest("[data-clear]")){var f=t.closest("form");delete MAN[f.dataset.price];ls("atd-manual",MAN);render(true);return}
   if(t.closest("#pasteBtn")){paste();return}
@@ -601,7 +615,7 @@ document.addEventListener("click",function(e){
 });
 document.addEventListener("keydown",function(e){if((e.key==="Enter"||e.key===" ")&&e.target.matches("tr.pick,th[tabindex],.pcard[tabindex]")){e.preventDefault();e.target.click()}});
 document.addEventListener("change",function(e){var t=e.target;
-  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.classList.contains("selBook")){S.book=t.value;render(true)}else if(t.id==="selTw"){S.twk=+t.value;render(true)}else if(t.id==="selHw"){S.hw=+t.value;S.game="all";S.open=null;render(true)}});
+  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.classList.contains("selBook")){S.book=t.value;render(true)}else if(t.id==="selTw"){S.twk=+t.value;render(true)}else if(t.id==="selFw"){S.fwk=+t.value;render(true)}else if(t.id==="selHw"){S.hw=+t.value;S.game="all";S.open=null;render(true)}});
 document.addEventListener("input",function(e){if(e.target.id==="pq"){S.pq=e.target.value;render(true)}});
 document.addEventListener("toggle",function(e){if(e.target.id==="how")S.howOpen=e.target.open},true);
 document.addEventListener("submit",function(e){e.preventDefault();var f=e.target;

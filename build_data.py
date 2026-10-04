@@ -44,7 +44,7 @@ HL, HLT, SM = 6, 6, 0.6          # half-life in games for players and teams; ext
 K, KT, KD = 1.5, 6.0, 30.0       # shrinkage, in games, for player shares, team run/pass mix and the defence nudge
 PBP_COLS = ["game_id", "season", "week", "posteam", "defteam", "play_type", "yardline_100", "air_yards", "two_point_attempt",
             "sack", "touchdown", "td_player_id", "rusher_player_id", "receiver_player_id", "passer_player_id", "pass_touchdown",
-            "play_id", "qtr", "fixed_drive"]
+            "play_id", "qtr", "fixed_drive", "time", "time_of_day", "td_team", "td_player_name", "rush_touchdown"]
 HTML = "touchdown_ledger.html"
 TAG = "atd-data"
 ODDS = "odds.json"
@@ -199,6 +199,27 @@ def player_games(pbp, sn, ros, games, pl):
     tm = d.groupby(["game_id", "posteam"]).agg(trx=("rx", "sum"), ttx=("tx", "sum"), trtd=("rtd", "sum"), tctd=("ctd", "sum")).reset_index()
     d = d.merge(tm, on=["game_id", "posteam"]).sort_values(["gameday", "game_id"]).reset_index(drop=True)
     return d, RT, TT
+
+
+def td_feed(pbp, d, pl, seasons):
+    """Every touchdown in the official play-by-play, in order: [season, week, game, scorer, team, position, quarter, clock, type, time of day]."""
+    td = pbp[(pbp.touchdown == 1) & pbp.td_player_id.notna() & (pbp.two_point_attempt != 1) & pbp.season.isin(seasons)]
+    td = td[~((td.pass_touchdown == 1) & (td.td_player_id == td.passer_player_id))].sort_values(["season", "week", "game_id", "play_id"])
+    who = d.drop_duplicates(["game_id", "pid"]).set_index(["game_id", "pid"])[["name", "pos"]]
+    full = pl.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").set_index("gsis_id").display_name.to_dict() if pl is not None else {}
+    last = d.drop_duplicates("pid", keep="last").set_index("pid").name.to_dict()
+    out = []
+    for r in td.itertuples():
+        k = (r.game_id, r.td_player_id)
+        name, pos = (who.name[k], who.pos[k]) if k in who.index else (last.get(r.td_player_id) or full.get(r.td_player_id) or r.td_player_name or "", "")
+        kind = "Rush" if r.rush_touchdown == 1 and r.td_player_id == r.rusher_player_id else \
+               "Rec" if r.pass_touchdown == 1 and r.td_player_id == r.receiver_player_id else "Return"
+        clock = str(r.time or "")
+        clock = clock[1:] if clock.startswith("0") and len(clock) == 5 else clock
+        tod = r.time_of_day if isinstance(r.time_of_day, str) else ""
+        team = r.td_team if isinstance(r.td_team, str) else ""
+        out.append([int(r.season), int(r.week), r.game_id, name, team, pos, int(r.qtr) if r.qtr == r.qtr else 0, clock, kind, tod])
+    return out
 
 
 # ---------- features ----------
@@ -497,7 +518,7 @@ def make(season=None, old=None):
     tms = {str(int(y)): teams(d[d.season == y]) for y in seasons[-2:]}
     out = {"season": int(season), "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "through": str(d.gameday.max()),
            "lastwk": int(dcur.week.max()) if len(dcur) else 0, "sched": sched, "picks": picks, "players": players, "teams": tms,
-           "model": model, "trk": trk}
+           "model": model, "trk": trk, "feed": td_feed(pbp, d, pl, [season - 1, season])}
     note = None
     bf = os.environ.get("ODDS_BACKFILL", "").strip().lower()
     if bf in ("1", "2", "3", "true"):
