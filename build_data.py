@@ -547,8 +547,8 @@ def parse_td(doc, market="player_anytime_td"):
 def remember_odds(sched, old, force=False):
     """Anytime-TD prices for the listed games from The Odds API, kept in odds.json.
 
-    One request per game per look (one market, one region). ODDS_LOOKS sets the looks, in hours before kickoff
-    (default "24,3,1": the day before, after inactives are close, and just before kickoff). About 210 requests a month.
+    Two requests per game per look (anytime and first touchdown, one region). ODDS_LOOKS sets the looks, in hours before
+    kickoff (default "24,3,1": the day before, after inactives are close, and just before kickoff). About 420 requests a month.
     Pulling stops when fewer than 15 requests remain on the key."""
     store = dict((old or {}).get("odds") or {})
     try:
@@ -580,14 +580,17 @@ def remember_odds(sched, old, force=False):
                 eid = ids.get((u["a"], u["h"]))
                 if not eid:
                     continue
-                raw, hd = get(f"{ODDS_API}/events/{eid}/odds?apiKey={key}&regions=us&markets=player_anytime_td&oddsFormat=american", 60, headers=True)
-                books = parse_td(json.loads(raw))
+                raw, hd = get(f"{ODDS_API}/events/{eid}/odds?apiKey={key}&regions=us&markets=player_anytime_td,player_1st_td&oddsFormat=american", 60, headers=True)
+                doc = json.loads(raw)
+                books, first = parse_td(doc), parse_td(doc, "player_1st_td")
                 left = hd.get("x-requests-remaining")
                 if left is not None:
                     meta["left"] = int(float(left))
                 rec = store.get(u["gid"]) or {}
                 if books:
                     rec.update({"at": now.strftime("%Y-%m-%dT%H:%M"), "b": books, "n": max(due, rec.get("n", 0))})
+                    if first:
+                        rec["f"] = first
                 else:
                     rec["tries"] = rec.get("tries", 0) + 1      # market not posted yet; try again next run
                 store[u["gid"]] = rec
