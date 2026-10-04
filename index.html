@@ -212,8 +212,11 @@ function pickTag(r){return r._top?' <span class="tag t8" title="One of the eight
 function evCls(e){return e==null?"":e>=0.15?"p2":e>=0.03?"p1":e>=0?"p0":"neg"}
 function evTxt(e){return e==null?"–":(e>=0?"+":"")+(e*100).toFixed(0)+"%"}
 var ESPN={LA:"lar",WAS:"wsh"};
-function lg(t){return '<img class="tlogo" alt="" loading="lazy" src="NFL%20Logos/'+t+'logo.svg" data-t="'+t+'" onerror="logoFail(this)">'}
-window.logoFail=function(im){if(im.dataset.t&&/^https?:$/.test(location.protocol)&&!/claude/.test(location.hostname)){var t=im.dataset.t;im.removeAttribute("data-t");im.src="https://a.espncdn.com/i/teamlogos/nfl/500/"+(ESPN[t]||t.toLowerCase())+".png"}else im.remove()};
+var LOGO={};   /* per team: the address that worked (so re-renders use it straight away), or false if none did */
+function lg(t){if(LOGO[t]===false)return"";return '<img class="tlogo" alt="" src="'+(LOGO[t]||"NFL%20Logos/"+t+"logo.svg")+'" data-t="'+t+'" onload="logoOk(this)" onerror="logoFail(this)">'}
+window.logoOk=function(im){var t=im.dataset.t;if(t&&!LOGO[t])LOGO[t]=im.getAttribute("src")};
+window.logoFail=function(im){var t=im.dataset.t,espn="https://a.espncdn.com/i/teamlogos/nfl/500/"+(ESPN[t]||String(t).toLowerCase())+".png";
+  if(t&&im.getAttribute("src")!==espn&&/^https?:$/.test(location.protocol)&&!/claude/.test(location.hostname)){im.src=espn}else{if(t)LOGO[t]=false;im.remove()}};
 function tmL(t){return '<span class="tml">'+lg(t)+'<span class="tm">'+t+"</span></span>"}
 function gm(gid){for(var i=0;i<D.sched.length;i++)if(D.sched[i].gid===gid)return D.sched[i]}
 function injTag(r){var t="";if(r.inj&&r.inj[0])t+=' <span class="tag q" title="'+esc(r.inj[1]+(r.inj[2]?" · "+r.inj[2]:""))+'">'+esc(r.inj[0].slice(0,1))+"</span>";
