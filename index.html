@@ -112,7 +112,7 @@ tbody tr.det>td{background:var(--bg);white-space:normal;padding:18px}
 @keyframes lpulse{50%{opacity:.35}}
 @media(prefers-reduced-motion:reduce){.pcard.first,.ldot{animation:none}}section[id^="game-"]{scroll-margin-top:16px}
 .calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:18px 28px}
-.calc>div{display:flex;flex-direction:column;gap:8px;min-width:0}.calc>div.wide{grid-column:1/-1}.tag.pk{background:var(--accent);color:var(--accent-ink);border-color:transparent}.tag.hot{color:var(--miss);border-color:color-mix(in srgb,var(--miss) 45%,transparent)}
+.calc>div{display:flex;flex-direction:column;gap:8px;min-width:0}.calc>div.wide{grid-column:1/-1}.notes ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:13.5px;color:var(--soft);line-height:1.55;max-width:110ch}.notes b{color:var(--ink);font-weight:500}.notes a,.note a{color:var(--accent)}.heads{display:flex;flex-direction:column;gap:8px}.tag.pk{background:var(--accent);color:var(--accent-ink);border-color:transparent}.tag.hot{color:var(--miss);border-color:color-mix(in srgb,var(--miss) 45%,transparent)}
 .eq{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 14px;font-size:13.5px;color:var(--soft)}
 .eq b{font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums;text-align:right}
 .eq .tot{border-top:1px solid var(--line);padding-top:6px;color:var(--accent)}
@@ -342,9 +342,33 @@ function detail(r){
   else h+='<p class="note">No book prices loaded for this player. Bet only at <b>'+amer(r.p)+"</b> or longer.</p>";
   if(r._pick)h+='<p class="note"><b>Ledger pick.</b> Chance 20%+ with an edge between 3% and 25% at the best price.</p>';
   if(r._ev!=null&&r._ev>PK.hi)h+='<p class="note"><b>Check the news first.</b> Edges above 25% lost money in the back-check. It usually means the book knows something the usage history does not: a role change, a returning starter, a snap limit.</p>';
-  if(r.inj&&r.inj[0])h+='<p class="note"><b>'+esc(r.inj[0])+"</b>"+(r.inj[1]?" · "+esc(r.inj[1]):"")+(r.inj[2]?" · "+esc(r.inj[2]):"")+"</p>";
-  h+='</div><div class="wide"><h3>Recent games</h3>'+logTable(r)+'<p class="note">Weighted averages: '+f2(r.x)+" xTD, "+f2(r.td)+" TD, "+f2(r.rz,1)+" red-zone chances, "+f2(r.i5)+" carries inside the 5, "+f2(r.ez)+" end-zone targets per game.</p></div></div>";
+  h+="</div>"+notesBlock(r)+'<div class="wide"><h3>Recent games</h3>'+logTable(r)+'<p class="note">Weighted averages: '+f2(r.x)+" xTD, "+f2(r.td)+" TD, "+f2(r.rz,1)+" red-zone chances, "+f2(r.i5)+" carries inside the 5, "+f2(r.ez)+" end-zone targets per game.</p></div></div>";
   return h}
+function fmtDay(d){var x=new Date(d);return isNaN(x)?"":x.toLocaleDateString([],{month:"short",day:"numeric"})}
+function notesBlock(r){
+  var g=gm(r.g),nt=(D.notes||{})[norm(r.n)],L=[],lg_=r.log||[];
+  if(r.inj&&r.inj[0])L.push("<b>Injury report: "+esc(r.inj[0])+"</b>"+(r.inj[1]?" · "+esc(r.inj[1]):"")+(r.inj[2]?" · "+esc(/practice/i.test(r.inj[2])?r.inj[2]:r.inj[2]+" practice"):""));
+  if(nt&&nt[1])L.push(esc(nt[1])+' <span class="o">ESPN'+(nt[2]?" · "+fmtDay(nt[2]):"")+"</span>");
+  var grp=r.pos==="FB"?"RB":r.pos,out=((g&&g.out||{})[r.t]||[]).filter(function(x){return x[1]===grp||(grp==="RB"&&x[1]==="FB")||(/WR|TE/.test(grp)&&/WR|TE/.test(x[1]))||x[1]==="QB"});
+  if(out.length)L.push("<b>Team-mates out:</b> "+out.map(function(x){return esc(x[0])+" ("+x[1]+(x[3]?", "+esc(x[3].toLowerCase()):"")+")"}).join(", ")+". Their chances have been moved to the players dressing.");
+  if(r.back)L.push("<b>No snaps in the team's last two games.</b> The model is working from older usage.");
+  if(lg_.length>=3){var last=lg_[lg_.length-1],prev=lg_.slice(-5,-1),av=function(i){var s=0;prev.forEach(function(x){s+=x[i]});return s/prev.length},ds=last[2]-av(2),to=last[3]+last[4],tp=av(3)+av(4);
+    if(Math.abs(ds)>=0.12)L.push("<b>Snaps "+(ds>0?"up":"down")+":</b> "+pct(last[2])+" last game against "+pct(av(2))+" over the "+prev.length+" before.");
+    if(tp>=3&&Math.abs(to-tp)/tp>=0.4)L.push("<b>Touches "+(to>tp?"up":"down")+":</b> "+to+" carries and targets last game against "+f2(tp,1)+" a game before.");
+    var rz=last[7]+(lg_.length>1?lg_[lg_.length-2][7]:0);if(rz>=6)L.push("<b>Heavy red-zone work:</b> "+rz+" red-zone chances over the last two games.");
+    var sc=lg_.filter(function(x){return x[9]>0}).length;L.push("Scored in "+sc+" of his last "+lg_.length+" games; expected TDs in that span "+f2(lg_.reduce(function(s,x){return s+x[8]},0),1)+", actual "+lg_.reduce(function(s,x){return s+x[9]},0)+".")}
+  var links=r.eid?'<a href="https://www.espn.com/nfl/player/_/id/'+r.eid+'" target="_blank" rel="noopener">ESPN player page</a>':"";
+  return '<div class="wide notes"><h3>Notes</h3>'+(L.length?"<ul>"+L.map(function(x){return "<li>"+x+"</li>"}).join("")+"</ul>":"")+
+    (r.eid?'<div class="heads" id="news-'+r.eid+'">'+headsHtml(r.eid)+"</div>":"")+(links?'<p class="note">'+links+"</p>":"")+"</div>"}
+/* latest headlines tagged to the player, fetched from ESPN when a row is opened (hosted site only) */
+var NEWS={};
+function headsHtml(eid){var n=NEWS[eid];if(n===undefined||n===null)return hosted()?'<span class="o">Loading headlines…</span>':"";if(!n||!n.length)return "";
+  return "<h3>Latest headlines</h3><ul>"+n.map(function(x){return '<li><span class="o">'+fmtDay(x.d)+"</span> "+(x.u?'<a href="'+esc(x.u)+'" target="_blank" rel="noopener">'+esc(x.h)+"</a>":esc(x.h))+"</li>"}).join("")+"</ul>"}
+function hosted(){return /^https?:$/.test(location.protocol)&&!/claude/.test(location.hostname)}
+function loadNews(eid){if(!eid||NEWS[eid]!==undefined||!hosted())return;NEWS[eid]=null;
+  fetch("https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/athletes/"+eid+"/overview").then(function(r){return r.json()}).then(function(j){
+    NEWS[eid]=((j.news||[]).slice(0,4)).map(function(x){var u=((x.links||{}).web||{}).href||"";return{h:x.headline||"",d:x.published||"",u:/^https:\/\//.test(u)?u:""}}).filter(function(x){return x.h})}).catch(function(){NEWS[eid]=[]})
+    .then(function(){var el=$("news-"+eid);if(el)el.innerHTML=headsHtml(eid)})}
 function logTable(r){if(!r.log||!r.log.length)return'<p class="empty">No games on record.</p>';
   return '<div class="tw"><table class="mini"><thead><tr><th>Wk</th><th>Opp</th><th class="n">Snaps</th><th class="n">Car</th><th class="n">Tgt</th><th class="n" title="Carries inside the 5">In 5</th><th class="n" title="End-zone targets">EZ</th><th class="n" title="Red-zone carries and targets">RZ</th><th class="n">xTD</th><th class="n">TD</th></tr></thead><tbody>'+r.log.slice().reverse().map(function(l){return "<tr><td>"+l[0]+"</td><td>"+l[1]+'</td><td class="n">'+pct(l[2])+'</td><td class="n">'+l[3]+'</td><td class="n">'+l[4]+'</td><td class="n">'+l[5]+'</td><td class="n">'+l[6]+'</td><td class="n">'+l[7]+'</td><td class="n">'+f2(l[8])+'</td><td class="n">'+(l[9]?'<span class="tag w">'+l[9]+"</span>":"0")+"</td></tr>"}).join("")+"</tbody></table></div>"}
 
@@ -505,6 +529,7 @@ function render(keep){
   Array.prototype.forEach.call($("tabs").children,function(b){b.setAttribute("aria-selected",b.dataset.tab===S.tab)});
   $("view").innerHTML=V[S.tab]();
   if(keep)window.scrollTo(0,y);
+  if(S.open){var orow=D.picks.filter(function(x){return x.g+"|"+x.id===S.open})[0];if(orow&&orow.eid){if(NEWS[orow.eid]===undefined)loadNews(orow.eid)}}
   if(ae==="pq"&&$("pq")){$("pq").focus();$("pq").setSelectionRange(pos,pos)}}
 function say(t){$("refreshMsg").hidden=!t;$("refreshMsg").textContent=t||""}
 function start(d){
@@ -561,6 +586,19 @@ var inline=null;try{var raw=$("atd-data").textContent.trim();if(raw)inline=JSON.
 if(inline)start(inline);else fetch("data.json",{cache:"no-store"}).then(function(r){if(!r.ok)throw 0;return r.json()}).then(start).catch(fail);
 /* touchdown scorers for games under way, read from ESPN once a minute while the page is open (hosted site only) */
 var ESPN_API="https://site.api.espn.com/apis/site/v2/sports/football/nfl/",ESPN_AB={WSH:"WAS",LAR:"LA"},polling=false;
+/* who scored comes from the box score (full names); who scored first from the first touchdown play, matched back to those names */
+function parseSummary(s){var td={},kinds={},first=null;
+  (((s.boxscore||{}).players)||[]).forEach(function(tm){(tm.statistics||[]).forEach(function(g){var i=(g.labels||[]).indexOf("TD");if(g.name==="passing"||i<0)return;
+    (g.athletes||[]).forEach(function(a){var n=parseInt((a.stats||[])[i],10)||0;if(n<=0)return;var full=(a.athlete||{}).displayName||"",k=norm(full);td[k]=(td[k]||0)+n;(kinds[k]=kinds[k]||{full:full,g:{}}).g[g.name]=1})})});
+  var plays=[],dr=s.drives||{};(dr.previous||[]).concat(dr.current&&dr.current.plays?[dr.current]:[]).forEach(function(d){plays=plays.concat(d.plays||[])});
+  (s.scoringPlays||[]).concat(plays).some(function(sp){var kind=((sp.scoringType||{}).abbreviation||"")+" "+((sp.type||{}).text||"");if(kind.indexOf("TD")<0&&!/touchdown/i.test(kind))return false;
+    var text=sp.text||"",m=/^(.*?)\s+\d+\s+(?:Yd|Yard)/.exec(text);if(m&&td[norm(m[1])]){first=norm(m[1]);return true}
+    var want=/pass/i.test(kind)?"receiving":/rush/i.test(kind)?"rushing":null,best=null;
+    Object.keys(kinds).forEach(function(k){var parts=kinds[k].full.split(" ");if(parts.length<2||(want&&!kinds[k].g[want]))return;var pos=text.indexOf(parts[0].charAt(0)+"."+parts[1]);
+      if(pos>=0&&(!best||(want==="receiving"?pos>best[0]:pos<best[0])))best=[pos,k]});
+    if(best){first=best[1];return true}
+    return Object.keys(td).length>0});
+  return{td:td,first:first}}
 function pollLive(){
   if(polling||!D||document.hidden)return;var now=Date.now(),L=D.live=D.live||{};
   var started=D.sched.filter(function(g){return new Date(g.ts).getTime()<=now&&!(L[g.gid]&&L[g.gid].st==="post")});
@@ -569,9 +607,7 @@ function pollLive(){
     return Promise.all((sb.events||[]).map(function(e){var c=(e.competitions||[{}])[0],tm={};(c.competitors||[]).forEach(function(x){var a=(x.team||{}).abbreviation;tm[x.homeAway]=ESPN_AB[a]||a});
       var g=started.filter(function(x){return x.a===tm.away&&x.h===tm.home})[0],st=((e.status||{}).type||{}).state;
       if(!g||(st!=="in"&&st!=="post"))return null;
-      return fetch(ESPN_API+"summary?event="+e.id).then(function(r){return r.json()}).then(function(s){var rec={st:st,td:{},first:null};
-        (s.scoringPlays||[]).forEach(function(sp){var kind=((sp.scoringType||{}).abbreviation||"")+" "+((sp.type||{}).text||"");if(kind.indexOf("TD")<0&&!/touchdown/i.test(kind))return;
-          var m=/^(.*?)\s+(?:\d+\s+(?:Yd|Yard)|Fumble|Interception|Blocked|Kickoff|Punt|Defensive)/i.exec(sp.text||"");if(!m)return;var who=norm(m[1]);rec.td[who]=(rec.td[who]||0)+1;rec.first=rec.first||who});
+      return fetch(ESPN_API+"summary?event="+e.id).then(function(r){return r.json()}).then(function(s){var ps=parseSummary(s),rec={st:st,td:ps.td,first:ps.first};
         L[g.gid]=rec})}))})})).catch(function(){}).then(function(){polling=false;$("liveMsg")&&($("liveMsg").textContent="Scores checked "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+".");
     var ae=document.activeElement;if(JSON.stringify(L)!==before&&!(ae&&/INPUT|TEXTAREA|SELECT/.test(ae.tagName)))render(true)})}
 if(/^https?:$/.test(location.protocol)&&!/claude/.test(location.hostname)){setInterval(pollLive,60000);setTimeout(pollLive,1500);document.addEventListener("visibilitychange",function(){if(!document.hidden)pollLive()})}

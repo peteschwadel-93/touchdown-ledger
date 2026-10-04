@@ -121,7 +121,7 @@ def load(season):
             sn.append(pd.read_parquet(p))
         p = cached(f"roster_{y}.parquet", f"{REL}weekly_rosters/roster_weekly_{y}.parquet", cur)
         if p:
-            ros.append(pd.read_parquet(p, columns=["season", "week", "team", "position", "status", "full_name", "gsis_id", "pfr_id"]))
+            ros.append(pd.read_parquet(p, columns=["season", "week", "team", "position", "status", "full_name", "gsis_id", "pfr_id", "espn_id"]))
     if not pbp:
         raise RuntimeError("Could not download nflverse play-by-play")
     g = pd.read_csv(cached("games.csv", GAMES, True))
@@ -440,7 +440,8 @@ def make(season=None, old=None):
                 acc = acc * (SM if last != season else 1)
                 o, dd = O_end.get(team, (np.zeros(5), season))[0], D_end.get(opp, (np.zeros(5), season))[0]
                 row = {"game_id": g.game_id, "posteam": team, "opp": opp, "pid": r.gsis_id, "name": r.full_name, "pos": r.position,
-                       "imp": imp, "inj": st, "back": int(back), "n": acc[-1], "week": int(g.week)}
+                       "imp": imp, "inj": st, "back": int(back), "n": acc[-1], "week": int(g.week),
+                       "eid": str(int(float(r.espn_id))) if pd.notna(r.espn_id) and str(r.espn_id).strip() else ""}
                 row.update({"p_" + c: acc[j] for j, c in enumerate(PCOLS)})
                 row.update({"o_" + c: o[j] for j, c in enumerate(TCOLS)}); row["o_n"] = o[-1]
                 row.update({"d_" + c: dd[j] for j, c in enumerate(TCOLS)}); row["d_n"] = dd[-1]
@@ -466,7 +467,7 @@ def make(season=None, old=None):
             n1 = max(r.n, 1e-9)
             picks.append({"g": r.game_id, "id": r.pid, "n": r.name, "t": r.posteam, "o": r.opp, "pos": r.pos, "p": r3(r.p, 4), "pf": r3(r.pf, 4),
                           "T": r3(r.T, 2), "sp": r3(r.split), "rs": r3(r.rshn), "ts": r3(r.tshn), "lr": r3(r.lam_r), "lt": r3(r.lam_t),
-                          "sn": r3(r.snw, 2), "dr": r3(r.dr, 2), "dt": r3(r.dt, 2), "ng": r3(r.n, 1), "inj": r.inj, "back": r.back,
+                          "sn": r3(r.snw, 2), "dr": r3(r.dr, 2), "dt": r3(r.dt, 2), "ng": r3(r.n, 1), "inj": r.inj, "back": r.back, "eid": r.eid,
                           "x": r3((r.p_rx + r.p_tx) / n1, 2), "td": r3(r.p_tds / n1, 2), "i5": r3(r.p_i5 / n1, 2), "ez": r3(r.p_ez / n1, 2),
                           "rz": r3((r.p_rzc + r.p_rzt) / n1, 2), "log": logs.get(r.pid, [])})
     # ---- research tables
@@ -508,6 +509,7 @@ def make(season=None, old=None):
     full = remember_odds(sched, old)
     live = {u["gid"] for u in sched}
     out["live"] = live_scores(sched)
+    out["notes"] = espn_notes({norm_name(x["n"]) for x in picks})
     out["odds"] = {}
     for k, v in full.items():
         if k == "_meta" or k in live or not v.get("b"):
@@ -536,6 +538,72 @@ ESPN = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/"
 ESPN_ABBR = {"WSH": "WAS", "LAR": "LA"}
 
 
+def parse_summary(summ):
+    """({player: touchdowns}, first scorer) from an ESPN game summary. Touchdown counts come from the box score (full names);
+    the first scorer comes from the first touchdown play, matched back to those names."""
+    td, kinds = {}, {}
+    for team in ((summ.get("boxscore") or {}).get("players") or []):
+        for grp in team.get("statistics") or []:
+            labels = grp.get("labels") or []
+            if grp.get("name") == "passing" or "TD" not in labels:
+                continue
+            i = labels.index("TD")
+            for a in grp.get("athletes") or []:
+                try:
+                    n = int(float((a.get("stats") or [])[i]))
+                except Exception:
+                    n = 0
+                if n > 0:
+                    full = (a.get("athlete") or {}).get("displayName") or ""
+                    k = norm_name(full)
+                    td[k] = td.get(k, 0) + n
+                    kinds.setdefault(k, {"full": full, "g": set()})["g"].add(grp.get("name"))
+    first = None
+    plays = []
+    dr = summ.get("drives") or {}
+    for d in (dr.get("previous") or []) + ([dr["current"]] if isinstance(dr.get("current"), dict) else []):
+        plays += d.get("plays") or []
+    for sp in (summ.get("scoringPlays") or []) + plays:
+        kind = ((sp.get("scoringType") or {}).get("abbreviation") or "") + " " + ((sp.get("type") or {}).get("text") or "")
+        if "TD" not in kind and "touchdown" not in kind.lower():
+            continue
+        text = sp.get("text") or ""
+        m = re.match(r"^(.*?)\s+\d+\s+(?:Yd|Yard)", text)          # "Jonathan Taylor 3 Yd Run" style
+        if m and norm_name(m.group(1)) in td:
+            first = norm_name(m.group(1))
+            break
+        want = "receiving" if "pass" in kind.lower() else "rushing" if "rush" in kind.lower() else None
+        best = None
+        for k, v in kinds.items():                                  # "J.Williams left guard ..." style: initial + surname
+            parts = v["full"].split()
+            if len(parts) < 2 or (want and want not in v["g"]):
+                continue
+            pos = text.find(parts[0][0] + "." + parts[1])
+            if pos >= 0 and (best is None or (pos > best[0] if want == "receiving" else pos < best[0])):
+                best = (pos, k)
+        if best:
+            first = best[1]
+            break
+        if td:                                                     # a touchdown we could not attribute: leave first unknown
+            break
+    return td, first
+
+
+def espn_notes(names):
+    """Latest injury note for each listed player from ESPN's injury feed: {player: [status, one-line note, date]}."""
+    out = {}
+    try:
+        data = json.loads(get(ESPN + "injuries", 30))
+        for team in data.get("injuries") or []:
+            for it in team.get("injuries") or []:
+                k = norm_name((it.get("athlete") or {}).get("displayName") or "")
+                if k in names:
+                    out[k] = [it.get("status") or "", (it.get("shortComment") or "")[:240], (it.get("date") or "")[:10]]
+    except Exception as ex:
+        print(f"injury notes unavailable: {ex}", file=sys.stderr)
+    return out
+
+
 def live_scores(sched):
     """Touchdown scorers for listed games that have kicked off, from ESPN, so picks can be marked before the play-by-play arrives.
     {game: {"st": "in" or "post", "td": {player: touchdowns}, "first": player}}. Empty if ESPN cannot be read."""
@@ -554,17 +622,7 @@ def live_scores(sched):
                     continue
                 rec = {"st": state, "td": {}, "first": None}
                 try:
-                    summ = json.loads(get(f"{ESPN}summary?event={e['id']}", 30))
-                    for sp in summ.get("scoringPlays") or []:
-                        kind = ((sp.get("scoringType") or {}).get("abbreviation") or "") + " " + ((sp.get("type") or {}).get("text") or "")
-                        if "TD" not in kind and "touchdown" not in kind.lower():
-                            continue
-                        m = re.match(r"^(.*?)\s+(?:\d+\s+(?:Yd|Yard)|Fumble|Interception|Blocked|Kickoff|Punt|Defensive)", sp.get("text") or "", re.I)
-                        if not m:
-                            continue
-                        who = norm_name(m.group(1))
-                        rec["td"][who] = rec["td"].get(who, 0) + 1
-                        rec["first"] = rec["first"] or who
+                    rec["td"], rec["first"] = parse_summary(json.loads(get(f"{ESPN}summary?event={e['id']}", 30)))
                 except Exception as ex:
                     print(f"live: {u['gid']}: {ex}", file=sys.stderr)
                 out[u["gid"]] = rec
