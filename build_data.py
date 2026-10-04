@@ -580,10 +580,12 @@ ESPN_ABBR = {"WSH": "WAS", "LAR": "LA"}
 
 
 def parse_summary(summ):
-    """({player: touchdowns}, first scorer) from an ESPN game summary. Touchdown counts come from the box score (full names);
-    the first scorer comes from the first touchdown play, matched back to those names."""
+    """Touchdowns in an ESPN game summary: ({player: count}, first scorer, [[player, quarter, clock, kind, wallclock], ...],
+    {player: [full name, team]}). Counts come from the box score (full names); each touchdown play is matched back to those names."""
     td, kinds = {}, {}
     for team in ((summ.get("boxscore") or {}).get("players") or []):
+        ab = (team.get("team") or {}).get("abbreviation") or ""
+        ab = ESPN_ABBR.get(ab, ab)
         for grp in team.get("statistics") or []:
             labels = grp.get("labels") or []
             if grp.get("name") == "passing" or "TD" not in labels:
@@ -598,36 +600,45 @@ def parse_summary(summ):
                     full = (a.get("athlete") or {}).get("displayName") or ""
                     k = norm_name(full)
                     td[k] = td.get(k, 0) + n
-                    kinds.setdefault(k, {"full": full, "g": set()})["g"].add(grp.get("name"))
-    first = None
+                    kinds.setdefault(k, {"full": full, "team": ab, "g": set()})["g"].add(grp.get("name"))
     plays = []
     dr = summ.get("drives") or {}
     for d in (dr.get("previous") or []) + ([dr["current"]] if isinstance(dr.get("current"), dict) else []):
         plays += d.get("plays") or []
+    feed, seen = [], set()
     for sp in (summ.get("scoringPlays") or []) + plays:
         kind = ((sp.get("scoringType") or {}).get("abbreviation") or "") + " " + ((sp.get("type") or {}).get("text") or "")
         if "TD" not in kind and "touchdown" not in kind.lower():
             continue
+        if sp.get("id") in seen:
+            continue
+        seen.add(sp.get("id"))
         text = sp.get("text") or ""
+        who = None
         m = re.match(r"^(.*?)\s+\d+\s+(?:Yd|Yard)", text)          # "Jonathan Taylor 3 Yd Run" style
         if m and norm_name(m.group(1)) in td:
-            first = norm_name(m.group(1))
-            break
-        want = "receiving" if "pass" in kind.lower() else "rushing" if "rush" in kind.lower() else None
-        best = None
-        for k, v in kinds.items():                                  # "J.Williams left guard ..." style: initial + surname
-            parts = v["full"].split()
-            if len(parts) < 2 or (want and want not in v["g"]):
-                continue
-            pos = text.find(parts[0][0] + "." + parts[1])
-            if pos >= 0 and (best is None or (pos > best[0] if want == "receiving" else pos < best[0])):
-                best = (pos, k)
-        if best:
-            first = best[1]
-            break
-        if td:                                                     # a touchdown we could not attribute: leave first unknown
-            break
-    return td, first
+            who = norm_name(m.group(1))
+        else:
+            ret = bool(re.search("return|interception|fumble|block|kickoff|punt", kind, re.I))
+            want = "ret" if ret else "receiving" if "pass" in kind.lower() else "rushing" if "rush" in kind.lower() else None
+            best = None
+            for k, v in kinds.items():                              # "J.Williams left guard ..." style: initial + surname
+                parts = v["full"].split()
+                if len(parts) < 2:
+                    continue
+                if want == "ret":                                   # a return: the scorer is credited outside rushing/receiving
+                    if not (v["g"] - {"rushing", "receiving"}):
+                        continue
+                elif want and want not in v["g"]:
+                    continue
+                pos = text.rfind(parts[0][0] + "." + parts[1]) if want in ("ret", "receiving") else text.find(parts[0][0] + "." + parts[1])
+                if pos >= 0 and (best is None or (pos > best[0] if want in ("ret", "receiving") else pos < best[0])):
+                    best = (pos, k)
+            who = best[1] if best else None
+        label = "Return" if re.search("return|interception|fumble|block|kickoff|punt", kind, re.I) else "Rec" if "pass" in kind.lower() else "Rush" if "rush" in kind.lower() else "TD"
+        feed.append([who, (sp.get("period") or {}).get("number"), (sp.get("clock") or {}).get("displayValue") or "", label, sp.get("wallclock") or ""])
+    first = feed[0][0] if feed else None
+    return td, first, feed, {k: [v["full"], v["team"]] for k, v in kinds.items()}
 
 
 def espn_notes(names):
@@ -663,7 +674,7 @@ def live_scores(sched):
                     continue
                 rec = {"st": state, "td": {}, "first": None}
                 try:
-                    rec["td"], rec["first"] = parse_summary(json.loads(get(f"{ESPN}summary?event={e['id']}", 30)))
+                    rec["td"], rec["first"], rec["ev"], rec["nm"] = parse_summary(json.loads(get(f"{ESPN}summary?event={e['id']}", 30)))
                 except Exception as ex:
                     print(f"live: {u['gid']}: {ex}", file=sys.stderr)
                 out[u["gid"]] = rec

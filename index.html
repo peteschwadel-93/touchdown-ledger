@@ -161,6 +161,7 @@ code{font:400 12.5px var(--mono);background:var(--sunk);padding:2px 6px;border-r
     <div class="tabs" role="tablist" id="tabs">
       <button role="tab" data-tab="picks">Picks</button>
       <button role="tab" data-tab="games">Games</button>
+      <button role="tab" data-tab="feed">TD Feed</button>
       <button role="tab" data-tab="players">Players</button>
       <button role="tab" data-tab="teams">Teams</button>
       <button role="tab" data-tab="tracker">Tracker</button>
@@ -177,7 +178,7 @@ code{font:400 12.5px var(--mono);background:var(--sunk);padding:2px 6px;border-r
 "use strict";
 var $=function(id){return document.getElementById(id)};
 var D=null,served=/^https?:$/.test(location.protocol)&&/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-var S={tab:"picks",wk:null,sort:"value",pos:"all",game:"all",book:"best",minp:0.1,priced:0,open:null,gsel:null,pseason:null,ppos:"all",pq:"",psort:[10,-1],tview:"off",bsort:null,gsort:null,tseason:null,hs:null,hw:null,tsort:{off:[1,-1],def:[1,-1]},twk:0,pk:{}};
+var S={book:"best",tab:"picks",wk:null,sort:"value",pos:"all",game:"all",minp:0.1,priced:0,open:null,gsel:null,pseason:null,ppos:"all",pq:"",psort:[10,-1],tview:"off",bsort:null,gsort:null,tseason:null,hs:null,hw:null,tsort:{off:[1,-1],def:[1,-1]},twk:0,pk:{}};
 function ls(k,v){try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||"null");localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
 var MAN=ls("atd-manual")||{},PASTE=ls("atd-paste")||{};
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
@@ -197,18 +198,24 @@ function oddsFor(gid){
     Object.keys(r.b).forEach(function(bk){if(out.books.indexOf(bk)<0)out.books.push(bk);r.b[bk].forEach(function(x){var k=norm(x[0]);(out.by[k]=out.by[k]||{})[bk]=x[1]})})});
   return IDX[gid]=out}
 function allBooks(){var s={};D.sched.forEach(function(g){oddsFor(g.gid).books.forEach(function(b){s[b]=1})});return Object.keys(s).sort()}
-function priceOf(r){
+function priceOf(r,book){
   var m=MAN[r.g+"|"+r.id];if(m!=null)return{a:m,bk:"Your price"};
   var by=oddsFor(r.g).by[norm(r.n)];if(!by)return null;
-  if(S.book!=="best")return by[S.book]!=null?{a:by[S.book],bk:S.book}:null;
+  if(book&&book!=="best")return by[book]!=null?{a:by[book],bk:book}:null;
   var best=null;Object.keys(by).forEach(function(b){if(!best||dec(by[b])>dec(best.a))best={a:by[b],bk:b,n:Object.keys(by).length}});return best}
+var MAINBK="FanDuel";
+function bookName(){return S.book==="best"?"the best price across books":S.book}
+function bookSel(id){var books=allBooks();return '<label class="f" for="'+id+'">Book <select id="'+id+'" class="selBook"><option value="best"'+(S.book==="best"?" selected":"")+">Best price</option>"+books.map(function(b){return '<option'+(S.book===b?" selected":"")+">"+esc(b)+"</option>"}).join("")+"</select></label>"}
 var PK={p:0.2,lo:0.03,hi:0.25};   /* the Picks rule: see the Tracker for its record */
-function firstOf(r){var by=oddsFor(r.g).byf[norm(r.n)];if(!by)return null;if(S.book!=="best")return by[S.book]!=null?{a:by[S.book],bk:S.book}:null;
+function firstOf(r,book){var by=oddsFor(r.g).byf[norm(r.n)];if(!by)return null;if(book&&book!=="best")return by[book]!=null?{a:by[book],bk:book}:null;
   var best=null;Object.keys(by).forEach(function(b){if(!best||dec(by[b])>dec(best.a))best={a:by[b],bk:b}});return best}
-function calc(r){var pr=priceOf(r);r._pr=pr;if(pr){var d=dec(pr.a);r._imp=1/d;r._ev=r.p*d-1;r._k=r._ev/(d-1)}else{r._imp=r._ev=r._k=null}
-  var fp=firstOf(r);r._fp=fp;r._fev=fp?r.pf*dec(fp.a)-1:null;
+function calc(r){var pr=priceOf(r,S.book);r._pr=pr;if(pr){var d=dec(pr.a);r._imp=1/d;r._ev=r.p*d-1;r._k=r._ev/(d-1)}else{r._imp=r._ev=r._k=null}
+  var fp=firstOf(r,S.book);r._fp=fp;r._fev=fp?r.pf*dec(fp.a)-1:null;
   r._pick=!!(pr&&r.p>=PK.p&&r._ev>=PK.lo&&r._ev<=PK.hi);r._top=false;r._lst=false;
-  var dd=pr?dec(pr.a):0;r._ls=!!(pr&&!r._pick&&isLong(r.p,dd,r._ev));r._warn=dd>=10&&dd<15;return r}
+  var dd=pr?dec(pr.a):0;r._ls=!!(pr&&!r._pick&&isLong(r.p,dd,r._ev));r._warn=dd>=10&&dd<15;
+  var bp=pr,bf=fp;r.b_pr=bp;
+  if(bp){var bd=dec(bp.a);r.b_imp=1/bd;r.b_ev=r.p*bd-1;r.b_k=r.b_ev/(bd-1)}else{r.b_imp=r.b_ev=r.b_k=null}
+  r.b_fp=bf;r.b_fev=bf?r.pf*dec(bf.a)-1:null;return r}
 /* Long shots (experimental): chance 10-25%, price +400 to +900, model says the price is at least fair */
 function isLong(p,d,e){return p>=0.10&&p<0.25&&d>=5&&d<10&&e>0}
 function liveCls(r){var L=liveRes(r);return L&&L.first?" scf":L&&L.td>0?" sc":""}
@@ -264,10 +271,10 @@ function pool(){return poolWk(S.wk)}
 /* ---------- Picks ---------- */
 /* board columns: [label, sort value, tooltip, class] */
 var BC=[["Player",function(r){return r.n},"",""],["Game",function(r){return r.t},"",""],["Model",function(r){return r.p},"","n k"],["Fair",function(r){return r.p},"","n k"],
-  ["Price",function(r){return r._pr?dec(r._pr.a):null},"Best price found","n"],["Impl.",function(r){return r._imp},"Chance implied by the price","n"],["Edge",function(r){return r._ev},"","n k"],["Blend",function(r){return r._k},"Kelly stake","n"],
+  ["Price",function(r){return r.b_pr?dec(r.b_pr.a):null},"Best price found","n"],["Impl.",function(r){return r.b_imp},"Chance implied by the price","n"],["Edge",function(r){return r.b_ev},"","n k"],["Blend",function(r){return r.b_k},"Kelly stake","n"],
   ["Rush sh.",function(r){return r.rs},"Share of the team's rushing touchdown chances","n"],["Tgt sh.",function(r){return r.ts},"Share of the team's receiving touchdown chances","n"],
   ["xTD/g",function(r){return r.x},"Expected touchdowns per game from his carries and targets","n"],["Team TDs",function(r){return r.T},"Team touchdowns expected from the betting total and spread","n"],
-  ["1st TD fair",function(r){return r.pf},"Model fair price to score the first touchdown","n k"],["1st TD price",function(r){return r._fp?dec(r._fp.a):null},"Best first-touchdown price found","n"],["1st TD edge",function(r){return r._fev},"Model first-TD chance × price − 1","n k"]];
+  ["1st TD fair",function(r){return r.pf},"Model fair price to score the first touchdown","n k"],["1st TD price",function(r){return r.b_fp?dec(r.b_fp.a):null},"Best first-touchdown price found","n"],["1st TD edge",function(r){return r.b_fev},"Model first-TD chance × price − 1","n k"]];
 var BKAB={"DraftKings":"DK","FanDuel":"FD","BetMGM":"MGM","Caesars":"CZR","BetRivers":"BRV","Fanatics":"FAN","Bovada":"BOV","BetOnline.ag":"BOL","Your price":"YOU","ESPN BET":"ESPN","Hard Rock Bet":"HR","bet365":"365","Fliff":"FLF","LowVig.ag":"LV","MyBookie.ag":"MB","BetUS":"BUS"};
 function bkAb(b){if(!b)return"";return '<span class="o bk" title="'+esc(b)+'">'+esc(BKAB[b]||String(b).replace(/[^A-Za-z0-9]/g,"").slice(0,3).toUpperCase())+"</span>"}
 function topCard(title,blurb,rows,val,sub,lead,emptyMsg){
@@ -308,8 +315,8 @@ function vPicks(){
   if(!isLive)return h;
   /* board */
   var books=allBooks();
-  var list=rows.filter(function(r){return (S.pos==="all"||r.pos===S.pos)&&(S.game==="all"||r.g===S.game)&&(S.priced===4?r._ls:S.priced===3?r._top:S.priced===2?r._pick:r.p>=S.minp&&(!S.priced||r._pr))});
-  var key={value:function(r){return r._ev==null?-9:r._ev},blend:function(r){return r._k==null?-9:r._k},likely:function(r){return r.p}}[S.sort];
+  var list=rows.filter(function(r){return (S.pos==="all"||r.pos===S.pos)&&(S.game==="all"||r.g===S.game)&&(S.priced===4?r._ls:S.priced===3?r._top:S.priced===2?r._pick:r.p>=S.minp&&(!S.priced||r.b_pr))});
+  var key={value:function(r){return r.b_ev==null?-9:r.b_ev},blend:function(r){return r.b_k==null?-9:r.b_k},likely:function(r){return r.p}}[S.sort];
   if(S.bsort){var bf=BC[S.bsort[0]][1],bd=S.bsort[1];list.sort(function(a,b){var x=bf(a),y=bf(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return (typeof x==="string"?x.localeCompare(y):x-y)*bd})}
   else list.sort(function(a,b){return key(b)-key(a)||b.p-a.p});
   h+='<section class="panel"><div class="phead"><h2>The board</h2><div class="filters">'+
@@ -317,13 +324,13 @@ function vPicks(){
     '<label class="f">Rank by '+seg("seg-sort",[["value","Value"],["blend","Blend"],["likely","Likelihood"]],S.bsort?"":S.sort)+"</label>"+
     '<label class="f">Position '+seg("seg-pos",[["all","All"],["RB","RB"],["WR","WR"],["TE","TE"],["QB","QB"]],S.pos)+"</label>"+
     '<label class="f" for="selGame">Game <select id="selGame"><option value="all">All games</option>'+games.map(function(g){return '<option value="'+g.gid+'"'+(S.game===g.gid?" selected":"")+">"+g.a+" @ "+g.h+"</option>"}).join("")+"</select></label>"+
-    (books.length?'<label class="f" for="selBook">Book <select id="selBook"><option value="best">Best price</option>'+books.map(function(b){return '<option'+(S.book===b?" selected":"")+">"+esc(b)+"</option>"}).join("")+"</select></label>"+
+    (books.length?bookSel("selBook")+
     '<label class="f">Show '+seg("seg-priced",[[0,"All"],[1,"Priced"],[2,"Picks"],[3,"Top 8"],[4,"Long shots"]],S.priced)+"</label>":"")+"</div></div>";
   h+='<p class="note">Click any column heading to sort by it. Open a row for the full working: team touchdowns, run/pass split, the player\'s share of each, recent usage, and a box for your own price. '+list.length+" players shown.</p>";
   h+='<div class="tw"><table class="board"><thead><tr>'+BC.map(function(c,i){return '<th tabindex="0" data-bs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(S.bsort&&S.bsort[0]===i?' aria-sort="'+(S.bsort[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+"</tr></thead><tbody>";
   if(!list.length)h+='<tr><td colspan="15" class="o">No players match these filters.</td></tr>';
   list.slice(0,S.game==="all"?150:999).forEach(function(r){var id=r.g+"|"+r.id,on=S.open===id;
-    h+='<tr class="pick'+(on?" on":"")+liveCls(r)+'" tabindex="0" data-open="'+esc(id)+'"><td><span class="tag pos">'+r.pos+'</span> <span class="pn">'+esc(r.n)+"</span>"+injTag(r)+pickTag(r)+'</td><td>'+tmL(r.t)+' <span class="o">'+vsTxt(r)+'</span></td><td class="n k"><b>'+pct(r.p,1)+'</b></td><td class="n k">'+amer(r.p)+'</td><td class="n">'+(r._pr?fmtA(r._pr.a)+" "+bkAb(r._pr.bk):'<span class="o">–</span>')+'</td><td class="n">'+pct(r._imp,1)+'</td><td class="n k"><span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+'</span></td><td class="n">'+(r._k==null?"–":r._k>0?(r._k*100).toFixed(1)+"%":"0")+'</td><td class="n">'+pct(r.rs)+'</td><td class="n">'+pct(r.ts)+'</td><td class="n">'+f2(r.x)+'</td><td class="n">'+f2(r.T)+'</td><td class="n k">'+amer(r.pf)+'</td><td class="n">'+(r._fp?fmtA(r._fp.a)+" "+bkAb(r._fp.bk):'<span class="o">–</span>')+'</td><td class="n k"><span class="ev '+evCls(r._fev)+'">'+evTxt(r._fev)+"</span></td></tr>";
+    h+='<tr class="pick'+(on?" on":"")+liveCls(r)+'" tabindex="0" data-open="'+esc(id)+'"><td><span class="tag pos">'+r.pos+'</span> <span class="pn">'+esc(r.n)+"</span>"+injTag(r)+pickTag(r)+'</td><td>'+tmL(r.t)+' <span class="o">'+vsTxt(r)+'</span></td><td class="n k"><b>'+pct(r.p,1)+'</b></td><td class="n k">'+amer(r.p)+'</td><td class="n">'+(r.b_pr?fmtA(r.b_pr.a)+" "+bkAb(r.b_pr.bk):'<span class="o">–</span>')+'</td><td class="n">'+pct(r.b_imp,1)+'</td><td class="n k"><span class="ev '+evCls(r.b_ev)+'">'+evTxt(r.b_ev)+'</span></td><td class="n">'+(r.b_k==null?"–":r.b_k>0?(r.b_k*100).toFixed(1)+"%":"0")+'</td><td class="n">'+pct(r.rs)+'</td><td class="n">'+pct(r.ts)+'</td><td class="n">'+f2(r.x)+'</td><td class="n">'+f2(r.T)+'</td><td class="n k">'+amer(r.pf)+'</td><td class="n">'+(r.b_fp?fmtA(r.b_fp.a)+" "+bkAb(r.b_fp.bk):'<span class="o">–</span>')+'</td><td class="n k"><span class="ev '+evCls(r.b_fev)+'">'+evTxt(r.b_fev)+"</span></td></tr>";
     if(on)h+='<tr class="det"><td colspan="15">'+detail(r)+"</td></tr>"});
   h+="</tbody></table></div>"+(list.length>150&&S.game==="all"?'<p class="note">Showing the top 150. Narrow by game or position to see the rest.</p>':"")+"</section>";
   return h}
@@ -397,6 +404,31 @@ function vGames(){
       return s+"</div>"}).join("")+"</div></section>"});
   return h}
 
+/* ---------- TD Feed ---------- */
+var FC=[["When",function(e){return e.wc||""},"","",-1],["Player",function(e){return e.name},"","",1],["Team",function(e){return e.team},"","",1],["Type",function(e){return e.kind},"Rushing, receiving or a return","",1],
+  ["TD #",function(e){return e.nth},"His touchdowns so far in this game","n",-1],["Model",function(e){return e.p},"The model's chance he would score","n k",-1],["Fair",function(e){return e.p},"","n k",-1],
+  ["Price",function(e){return e.pr?dec(e.pr.a):null},"Pre-kickoff price at the chosen book","n",-1],["Edge",function(e){return e.ev},"","n k",-1],["Units",function(e){return e.units},"Profit on one unit; counted once per player","n",-1]];
+function feedRows(){var out=[],L=D.live||{};
+  D.sched.forEach(function(g){var rec=L[g.gid];if(!rec)return;var cnt={},rows=D.picks.filter(function(r){return r.g===g.gid}).map(calc),by={};rows.forEach(function(r){by[norm(r.n)]=r});
+    weekPicks(D.season,g.wk);
+    var evs=(rec.ev&&rec.ev.length)?rec.ev:Object.keys(rec.td||{}).map(function(k){return[k,null,"","TD",""]});
+    evs.forEach(function(e,i){var k=e[0],r=k?by[k]:null,nm=k&&rec.nm&&rec.nm[k]||null;if(k)cnt[k]=(cnt[k]||0)+1;
+      out.push({g:g,k:k,row:r,name:r?r.n:nm?nm[0]:k?k.replace(/\b[a-z]/g,function(c){return c.toUpperCase()}):"Unattributed",team:r?r.t:nm?nm[1]:"",pos:r?r.pos:"",kind:e[3],per:e[1],clk:e[2],wc:e[4]||g.ts+"#"+("00"+i).slice(-3),
+        nth:k?cnt[k]:1,first:i===0&&!!(rec.ev&&rec.ev.length),p:r?r.p:null,pr:r?r._pr:null,ev:r?r._ev:null,units:r&&r._pr&&cnt[k]===1?dec(r._pr.a)-1:null,st:rec.st})})});
+  return out}
+function vFeed(){
+  var rows=feedRows(),so=S.fsort||[0,-1],f=FC[so[0]][1];
+  rows.sort(function(a,b){var x=f(a),y=f(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return (typeof x==="string"?x.localeCompare(y):x-y)*so[1]});
+  var scorers={},t8=0,pk=0,ls=0;rows.forEach(function(e){if(!e.k||scorers[e.k+e.g.gid])return;scorers[e.k+e.g.gid]=1;if(e.row){if(e.row._top)t8++;if(e.row._pick)pk++;if(e.row._lst)ls++}});
+  var liveGames=D.sched.filter(function(g){return (D.live||{})[g.gid]}),inProg=liveGames.filter(function(g){return D.live[g.gid].st==="in"}).length;
+  var h='<section class="panel"><div class="phead"><h2>TD feed</h2><div class="filters"><span class="tag">'+rows.length+" touchdowns · "+Object.keys(scorers).length+' scorers</span><span class="tag'+(t8?" t8":"")+'">Top 8: '+t8+'</span><span class="tag'+(pk?" pk":"")+'">Ledger picks: '+pk+'</span><span class="tag'+(ls?" lsg":"")+'">Long shots: '+ls+"</span></div></div>";
+  h+='<p class="note">Every touchdown in games that have kicked off and are not yet in the official record: '+liveGames.length+" game"+(liveGames.length===1?"":"s")+", "+inProg+' in progress. Newest first; click a heading to sort. Checked every minute while this page is open. <span id="liveMsg"></span> Prices and edges are the pre-kickoff numbers at the book chosen on the Picks board.</p>';
+  if(!rows.length)return h+'<p class="empty">'+(liveGames.length?"No touchdowns yet.":"No games under way. Touchdowns appear here within about a minute once games kick off.")+"</p></section>";
+  h+='<div class="tw"><table><thead><tr>'+FC.map(function(c,i){return '<th tabindex="0" data-fs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(so[0]===i?' aria-sort="'+(so[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+"</tr></thead><tbody>";
+  rows.forEach(function(e){var when=e.per?(e.per>4?"OT":"Q"+e.per)+" "+e.clk:"";
+    h+='<tr class="'+(e.first?"scf":"sc")+'"><td><span class="o">'+e.g.a+" @ "+e.g.h+"</span> "+esc(when)+(e.st==="post"?' <span class="o">· final</span>':"")+'</td><td>'+(e.pos?'<span class="tag pos">'+e.pos+"</span> ":"")+'<span class="pn">'+esc(e.name)+"</span>"+(e.first?' <span class="tag fst">First TD</span>':"")+(e.row?pickTag0(e.row)+(e.row._lst?' <span class="tag lsg">Long shot</span>':""):"")+"</td><td>"+(e.team?tmL(e.team):"")+"</td><td>"+e.kind+'</td><td class="n">'+e.nth+'</td><td class="n k">'+(e.p!=null?"<b>"+pct(e.p,1)+"</b>":"–")+'</td><td class="n k">'+(e.p!=null?amer(e.p):"–")+'</td><td class="n">'+(e.pr?fmtA(e.pr.a)+" "+bkAb(e.pr.bk):"–")+'</td><td class="n k"><span class="ev '+evCls(e.ev)+'">'+evTxt(e.ev)+'</span></td><td class="n">'+(e.units!=null?"+"+f2(e.units):"–")+"</td></tr>"});
+  return h+"</tbody></table></div></section>"}
+
 /* ---------- Players ---------- */
 var PC=[["Player",0],["Team",1],["Pos",2],["G",3,"Games"],["Snaps",4,"Average snap share"],["Car",5],["Tgt",6],["In 5",7,"Carries inside the 5-yard line"],["EZ tgt",8,"Targets thrown into the end zone"],["RZ",9,"Red-zone carries plus targets"],["xTD",10,"Expected touchdowns from where his carries and targets happened"],["TD",11],["TD − xTD",-1,"Positive: scoring more than his chances suggest, likely to cool. Negative: due."],["Scored in",12,"Games with a touchdown"],["Rush share",13,"Share of team rushing TD chances"],["Tgt share",14,"Share of team receiving TD chances"]];
 function vPlayers(){
@@ -427,16 +459,14 @@ function vTeams(){
 
 /* ---------- Tracker ---------- */
 /* row: [season, week, game, player, team, opp, pos, model chance, scored 0/1, TDs] */
-function storedPrice(r){var o=(D.odds||{})[r[2]];if(!o)return null;var k=norm(r[3]),best=null;
-  if(!o._ix){o._ix={};(o.best||[]).forEach(function(x){o._ix[norm(x[0])]=[x[1],x[2]]});
-    if(o.b)Object.keys(o.b).forEach(function(bk){o.b[bk].forEach(function(x){var n=norm(x[0]);if(!o._ix[n]||dec(x[1])>dec(o._ix[n][0]))o._ix[n]=[x[1],bk]})})}
-  return o._ix[k]||null}
+function pickBook(e){return e?[e.best[0],e.best[1]]:null}
+function indexOdds(o,bestKey,liveKey){var ix={};(o[bestKey]||[]).forEach(function(x){ix[norm(x[0])]={best:[x[1],x[2]],main:x[3]}});
+  if(o[liveKey])Object.keys(o[liveKey]).forEach(function(bk){o[liveKey][bk].forEach(function(x){var n=norm(x[0]),e=ix[n]=ix[n]||{best:[x[1],bk],by:{}};e.by=e.by||{};e.by[bk]=x[1];if(dec(x[1])>dec(e.best[0]))e.best=[x[1],bk]})});return ix}
+function storedPrice(r){var o=(D.odds||{})[r[2]];if(!o)return null;if(!o._ix)o._ix=indexOdds(o,"best","b");return pickBook(o._ix[norm(r[3])])}
 function gradeAll(rows){var out=[];rows.forEach(function(r){var sp=storedPrice(r);if(!sp)return;var d=dec(sp[0]);out.push({r:r,a:sp[0],bk:sp[1],e:r[7]*d-1,k:(r[7]*d-1)/(d-1),pl:r[8]?d-1:-1})});return out}
 function isPk(b){return b.r[7]>=PK.p&&b.e>=PK.lo&&b.e<=PK.hi}
 function top8(pk){var by={},out=[];pk.forEach(function(b){var k=b.r[0]+"|"+b.r[1];(by[k]=by[k]||[]).push(b)});Object.keys(by).forEach(function(k){out=out.concat(by[k].sort(function(a,b){return b.r[7]-a.r[7]}).slice(0,8))});return out}
-function firstPrice(r){var o=(D.odds||{})[r[2]];if(!o)return null;if(!o._fx){o._fx={};(o.bestf||[]).forEach(function(x){o._fx[norm(x[0])]=[x[1],x[2]]});
-    if(o.f)Object.keys(o.f).forEach(function(bk){o.f[bk].forEach(function(x){var n=norm(x[0]);if(!o._fx[n]||dec(x[1])>dec(o._fx[n][0]))o._fx[n]=[x[1],bk]})})}
-  return o._fx[norm(r[3])]||null}
+function firstPrice(r){var o=(D.odds||{})[r[2]];if(!o)return null;if(!o._fx)o._fx=indexOdds(o,"bestf","f");return pickBook(o._fx[norm(r[3])])}
 function isLs(b){return !isPk(b)&&isLong(b.r[7],dec(b.a),b.e)}
 function top4(ls){var by={},out=[];ls.forEach(function(b){var k=b.r[0]+"|"+b.r[1];(by[k]=by[k]||[]).push(b)});Object.keys(by).forEach(function(k){out=out.concat(by[k].sort(function(a,b){return b.e-a.e}).slice(0,4))});return out}
 var _lrec;function longRecord(){if(_lrec!==undefined)return _lrec;var x=gradeAll(D.trk||[]).filter(isLs),u=0,t=top4(x),u4=0;x.forEach(function(b){u+=b.pl});t.forEach(function(b){u4+=b.pl});return _lrec=x.length?{n:x.length,u:u,n4:t.length,u4:u4}:null}
@@ -527,7 +557,7 @@ function vModel(){
   return h}
 
 /* ---------- shell ---------- */
-var V={picks:vPicks,games:vGames,players:vPlayers,teams:vTeams,tracker:vTracker,model:vModel};
+var V={picks:vPicks,games:vGames,feed:vFeed,players:vPlayers,teams:vTeams,tracker:vTracker,model:vModel};
 function render(keep){
   var y=window.scrollY,ae=document.activeElement&&document.activeElement.id,pos=ae==="pq"?$("pq").selectionStart:null;
   Array.prototype.forEach.call($("tabs").children,function(b){b.setAttribute("aria-selected",b.dataset.tab===S.tab)});
@@ -556,6 +586,7 @@ document.addEventListener("click",function(e){
   if(t.closest("#pasteBtn")){paste();return}
   if(t.closest("form,input,textarea,select,details.how,.det"))return;
   if((b=t.closest("th[data-bs]"))){var bi=+b.dataset.bs;S.bsort=S.bsort&&S.bsort[0]===bi?[bi,-S.bsort[1]]:[bi,bi<2?1:-1];render(true);return}
+  if((b=t.closest("th[data-fs]"))){var fi=+b.dataset.fs,fs=S.fsort||[0,-1];S.fsort=fs[0]===fi?[fi,-fs[1]]:[fi,FC[fi][4]];render(true);return}
   if((b=t.closest("th[data-gs]"))){var gi=+b.dataset.gs;S.gsort=S.gsort&&S.gsort[0]===gi?[gi,-S.gsort[1]]:[gi,gi<1?1:-1];render(true);return}
   if((b=t.closest("th[data-ps]"))){S.psort=setSort(S.psort,+b.dataset.ps);render(true);return}
   if((b=t.closest("th[data-ts]"))){S.tsort[S.tview]=setSort(S.tsort[S.tview],+b.dataset.ts);render(true);return}
@@ -565,7 +596,7 @@ document.addEventListener("click",function(e){
 });
 document.addEventListener("keydown",function(e){if((e.key==="Enter"||e.key===" ")&&e.target.matches("tr.pick,th[tabindex],.pcard[tabindex]")){e.preventDefault();e.target.click()}});
 document.addEventListener("change",function(e){var t=e.target;
-  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.id==="selBook"){S.book=t.value;render(true)}else if(t.id==="selTw"){S.twk=+t.value;render(true)}else if(t.id==="selHw"){S.hw=+t.value;S.game="all";S.open=null;render(true)}});
+  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.classList.contains("selBook")){S.book=t.value;render(true)}else if(t.id==="selTw"){S.twk=+t.value;render(true)}else if(t.id==="selHw"){S.hw=+t.value;S.game="all";S.open=null;render(true)}});
 document.addEventListener("input",function(e){if(e.target.id==="pq"){S.pq=e.target.value;render(true)}});
 document.addEventListener("toggle",function(e){if(e.target.id==="how")S.howOpen=e.target.open},true);
 document.addEventListener("submit",function(e){e.preventDefault();var f=e.target;
@@ -591,18 +622,23 @@ if(inline)start(inline);else fetch("data.json",{cache:"no-store"}).then(function
 /* touchdown scorers for games under way, read from ESPN once a minute while the page is open (hosted site only) */
 var ESPN_API="https://site.api.espn.com/apis/site/v2/sports/football/nfl/",ESPN_AB={WSH:"WAS",LAR:"LA"},polling=false;
 /* who scored comes from the box score (full names); who scored first from the first touchdown play, matched back to those names */
-function parseSummary(s){var td={},kinds={},first=null;
-  (((s.boxscore||{}).players)||[]).forEach(function(tm){(tm.statistics||[]).forEach(function(g){var i=(g.labels||[]).indexOf("TD");if(g.name==="passing"||i<0)return;
-    (g.athletes||[]).forEach(function(a){var n=parseInt((a.stats||[])[i],10)||0;if(n<=0)return;var full=(a.athlete||{}).displayName||"",k=norm(full);td[k]=(td[k]||0)+n;(kinds[k]=kinds[k]||{full:full,g:{}}).g[g.name]=1})})});
+var RETRE=/return|interception|fumble|block|kickoff|punt/i;
+function parseSummary(s){var td={},kinds={},feed=[],seen={};
+  (((s.boxscore||{}).players)||[]).forEach(function(tm){var ab=(tm.team||{}).abbreviation||"";ab=ESPN_AB[ab]||ab;(tm.statistics||[]).forEach(function(g){var i=(g.labels||[]).indexOf("TD");if(g.name==="passing"||i<0)return;
+    (g.athletes||[]).forEach(function(a){var n=parseInt((a.stats||[])[i],10)||0;if(n<=0)return;var full=(a.athlete||{}).displayName||"",k=norm(full);td[k]=(td[k]||0)+n;(kinds[k]=kinds[k]||{full:full,team:ab,g:{}}).g[g.name]=1})})});
   var plays=[],dr=s.drives||{};(dr.previous||[]).concat(dr.current&&dr.current.plays?[dr.current]:[]).forEach(function(d){plays=plays.concat(d.plays||[])});
-  (s.scoringPlays||[]).concat(plays).some(function(sp){var kind=((sp.scoringType||{}).abbreviation||"")+" "+((sp.type||{}).text||"");if(kind.indexOf("TD")<0&&!/touchdown/i.test(kind))return false;
-    var text=sp.text||"",m=/^(.*?)\s+\d+\s+(?:Yd|Yard)/.exec(text);if(m&&td[norm(m[1])]){first=norm(m[1]);return true}
-    var want=/pass/i.test(kind)?"receiving":/rush/i.test(kind)?"rushing":null,best=null;
-    Object.keys(kinds).forEach(function(k){var parts=kinds[k].full.split(" ");if(parts.length<2||(want&&!kinds[k].g[want]))return;var pos=text.indexOf(parts[0].charAt(0)+"."+parts[1]);
-      if(pos>=0&&(!best||(want==="receiving"?pos>best[0]:pos<best[0])))best=[pos,k]});
-    if(best){first=best[1];return true}
-    return Object.keys(td).length>0});
-  return{td:td,first:first}}
+  (s.scoringPlays||[]).concat(plays).forEach(function(sp){var kind=((sp.scoringType||{}).abbreviation||"")+" "+((sp.type||{}).text||"");if(kind.indexOf("TD")<0&&!/touchdown/i.test(kind))return;
+    if(sp.id&&seen[sp.id])return;if(sp.id)seen[sp.id]=1;
+    var text=sp.text||"",m=/^(.*?)\s+\d+\s+(?:Yd|Yard)/.exec(text),who=null;
+    if(m&&td[norm(m[1])])who=norm(m[1]);
+    else{var ret=RETRE.test(kind),want=ret?"ret":/pass/i.test(kind)?"receiving":/rush/i.test(kind)?"rushing":null,best=null,late=want==="ret"||want==="receiving";
+      Object.keys(kinds).forEach(function(k){var parts=kinds[k].full.split(" "),g=kinds[k].g;if(parts.length<2)return;
+        if(want==="ret"){if(!Object.keys(g).some(function(x){return x!=="rushing"&&x!=="receiving"}))return}else if(want&&!g[want])return;
+        var key=parts[0].charAt(0)+"."+parts[1],pos=late?text.lastIndexOf(key):text.indexOf(key);
+        if(pos>=0&&(!best||(late?pos>best[0]:pos<best[0])))best=[pos,k]});who=best?best[1]:null}
+    feed.push([who,(sp.period||{}).number||null,(sp.clock||{}).displayValue||"",RETRE.test(kind)?"Return":/pass/i.test(kind)?"Rec":/rush/i.test(kind)?"Rush":"TD",sp.wallclock||""])});
+  var nm={};Object.keys(kinds).forEach(function(k){nm[k]=[kinds[k].full,kinds[k].team]});
+  return{td:td,first:feed.length?feed[0][0]:null,ev:feed,nm:nm}}
 function pollLive(){
   if(polling||!D||document.hidden)return;var now=Date.now(),L=D.live=D.live||{};
   var started=D.sched.filter(function(g){return new Date(g.ts).getTime()<=now&&!(L[g.gid]&&L[g.gid].st==="post")});
@@ -611,7 +647,7 @@ function pollLive(){
     return Promise.all((sb.events||[]).map(function(e){var c=(e.competitions||[{}])[0],tm={};(c.competitors||[]).forEach(function(x){var a=(x.team||{}).abbreviation;tm[x.homeAway]=ESPN_AB[a]||a});
       var g=started.filter(function(x){return x.a===tm.away&&x.h===tm.home})[0],st=((e.status||{}).type||{}).state;
       if(!g||(st!=="in"&&st!=="post"))return null;
-      return fetch(ESPN_API+"summary?event="+e.id).then(function(r){return r.json()}).then(function(s){var ps=parseSummary(s),rec={st:st,td:ps.td,first:ps.first};
+      return fetch(ESPN_API+"summary?event="+e.id).then(function(r){return r.json()}).then(function(s){var ps=parseSummary(s),rec={st:st,td:ps.td,first:ps.first,ev:ps.ev,nm:ps.nm};
         L[g.gid]=rec})}))})})).catch(function(){}).then(function(){polling=false;$("liveMsg")&&($("liveMsg").textContent="Scores checked "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+".");
     var ae=document.activeElement;if(JSON.stringify(L)!==before&&!(ae&&/INPUT|TEXTAREA|SELECT/.test(ae.tagName)))render(true)})}
 if(/^https?:$/.test(location.protocol)&&!/claude/.test(location.hostname)){setInterval(pollLive,60000);setTimeout(pollLive,1500);document.addEventListener("visibilitychange",function(){if(!document.hidden)pollLive()})}
