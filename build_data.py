@@ -664,6 +664,29 @@ def parse_summary(summ):
     return td, first, feed, {k: [v["full"], v["team"]] for k, v in kinds.items()}
 
 
+BOX = {"passing": ("p", ["C/ATT", "YDS", "TD", "INT"]), "rushing": ("r", ["CAR", "YDS", "TD", "LONG"]),
+       "receiving": ("c", ["TGTS", "REC", "YDS", "TD", "LONG"])}
+
+
+def parse_box(summ):
+    """Offensive box score from an ESPN game summary: {team: {"p": [[name, C/ATT, yards, TD, INT]], "r": [[name, carries, yards, TD, long]],
+    "c": [[name, targets, catches, yards, TD, long]]}}."""
+    out = {}
+    for team in ((summ.get("boxscore") or {}).get("players") or []):
+        ab = (team.get("team") or {}).get("abbreviation") or ""
+        ab = ESPN_ABBR.get(ab, ab)
+        for grp in team.get("statistics") or []:
+            if grp.get("name") not in BOX:
+                continue
+            key, want = BOX[grp["name"]]
+            labels = grp.get("labels") or []
+            for a in grp.get("athletes") or []:
+                st = a.get("stats") or []
+                row = [(a.get("athlete") or {}).get("displayName") or ""] + [st[labels.index(w)] if w in labels and labels.index(w) < len(st) else "" for w in want]
+                out.setdefault(ab, {}).setdefault(key, []).append(row)
+    return out
+
+
 def espn_notes(names):
     """Latest injury note for each listed player from ESPN's injury feed: {player: [status, one-line note, date]}."""
     out = {}
@@ -695,9 +718,13 @@ def live_scores(sched):
                 state = ((e.get("status") or {}).get("type") or {}).get("state")
                 if not u or state not in ("in", "post"):
                     continue
-                rec = {"st": state, "td": {}, "first": None}
+                rec = {"st": state, "td": {}, "first": None,
+                       "sc": {ESPN_ABBR.get((c.get("team") or {}).get("abbreviation"), (c.get("team") or {}).get("abbreviation")): c.get("score") for c in comp.get("competitors") or []},
+                       "clk": ((e.get("status") or {}).get("type") or {}).get("shortDetail") or ""}
                 try:
-                    rec["td"], rec["first"], rec["ev"], rec["nm"] = parse_summary(json.loads(get(f"{ESPN}summary?event={e['id']}", 30)))
+                    summ = json.loads(get(f"{ESPN}summary?event={e['id']}", 30))
+                    rec["td"], rec["first"], rec["ev"], rec["nm"] = parse_summary(summ)
+                    rec["box"] = parse_box(summ)
                 except Exception as ex:
                     print(f"live: {u['gid']}: {ex}", file=sys.stderr)
                 out[u["gid"]] = rec

@@ -48,7 +48,7 @@ button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-vis
 .phead{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;justify-content:space-between}
 .note{color:var(--muted);font-size:13.5px;margin:0;line-height:1.6;max-width:95ch}
 .note b{color:var(--soft);font-weight:500}
-.tw{overflow-x:auto;min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--bg);container-type:inline-size}.tw.fit{align-self:flex-start;max-width:100%;container-type:normal}tr.det .calc{position:sticky;left:18px;width:calc(100cqw - 38px)}@container (max-width:1000px){tr.det .calc{grid-template-columns:minmax(0,1fr)}}@media(max-width:1340px){.grid2.gg{grid-template-columns:minmax(0,1fr)}}.gcard table.board th,.gcard table.board td{white-space:nowrap}.gcard table.board td:first-child{white-space:nowrap;min-width:0}
+.tw{overflow-x:auto;min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--bg);container-type:inline-size}.tw.fit{align-self:flex-start;max-width:100%;container-type:normal}tr.det .calc{position:sticky;left:18px;width:calc(100cqw - 38px)}@container (max-width:1000px){tr.det .calc{grid-template-columns:minmax(0,1fr)}}@media(max-width:1340px){.grid2.gg{grid-template-columns:minmax(0,1fr)}}.gcard table.board th,.gcard table.board td{white-space:nowrap}.bxh{display:flex;align-items:center;gap:8px;margin:18px 0 10px}.bx{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}.bx>.tw:last-child{grid-column:1/-1}.bx table.board td:first-child{min-width:0}@media(max-width:700px){.bx{grid-template-columns:minmax(0,1fr)}}.gcard table.board td:first-child{white-space:nowrap;min-width:0}
 table{border-collapse:collapse;width:100%;font-size:14.5px}
 th,td{padding:10px 14px;text-align:left;white-space:nowrap}
 th{font:500 11px/1.2 var(--body);text-transform:uppercase;letter-spacing:.11em;color:var(--muted);vertical-align:bottom;border-bottom:1px solid var(--line);padding-block:12px}
@@ -403,7 +403,7 @@ function vGames(){
       s+='<div class="tw"><table class="board"><thead><tr>'+GC.map(function(c,i){return '<th tabindex="0" data-gs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(S.gsort&&S.gsort[0]===i?' aria-sort="'+(S.gsort[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+'</tr></thead><tbody>'+rows.map(function(r){var id=r.g+"|"+r.id,on=S.open===id;
         return '<tr class="pick'+(on?" on":"")+liveCls(r)+'" tabindex="0" data-open="'+esc(id)+'"><td><span class="tag pos">'+r.pos+'</span> <span class="pn">'+esc(r.n)+"</span>"+injTag(r)+pickTag(r)+'</td><td class="n k"><b>'+pct(r.p,1)+'</b></td><td class="n k">'+amer(r.p)+'</td><td class="n">'+(r._pr?fmtA(r._pr.a):"–")+'</td><td class="n k"><span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+'</span></td><td class="n">'+(r._k==null?"–":r._k>0?(r._k*100).toFixed(1)+"%":"0")+'</td><td class="n">'+amer(r.pf)+'</td><td class="n">'+(r._fp?fmtA(r._fp.a):"–")+'</td><td class="n k"><span class="ev '+evCls(r._fev)+'">'+evTxt(r._fev)+'</span></td><td class="n">'+pct(r.rs)+'</td><td class="n">'+pct(r.ts)+'</td><td class="n">'+pct(r.sn)+"</td></tr>"+(on?'<tr class="det"><td colspan="12">'+detail(r)+"</td></tr>":"")}).join("")+"</tbody></table></div>";
       var out=(g.out||{})[t]||[];if(out.length)s+='<p class="note"><b>Ruled out or doubtful:</b> '+out.map(function(x){return esc(x[0])+" ("+x[1]+(x[3]?", "+esc(x[3].toLowerCase()):"")+")"}).join(", ")+". Their chances are spread over the players listed.</p>";
-      return s+"</div>"}).join("")+"</div></section>"});
+      return s+boxHtml(g,t)+"</div>"}).join("")+"</div></section>"});
   return h}
 
 /* ---------- TD Feed ---------- */
@@ -652,6 +652,15 @@ if(inline)start(inline);else fetch("data.json",{cache:"no-store"}).then(function
 var ESPN_API="https://site.api.espn.com/apis/site/v2/sports/football/nfl/",ESPN_AB={WSH:"WAS",LAR:"LA"},polling=false;
 /* who scored comes from the box score (full names); who scored first from the first touchdown play, matched back to those names */
 var RETRE=/return|interception|fumble|block|kickoff|punt/i;
+var BOX={passing:["p",["C/ATT","YDS","TD","INT"]],rushing:["r",["CAR","YDS","TD","LONG"]],receiving:["c",["TGTS","REC","YDS","TD","LONG"]]};
+function parseBox(s){var out={};(((s.boxscore||{}).players)||[]).forEach(function(tm){var ab=(tm.team||{}).abbreviation||"";ab=ESPN_AB[ab]||ab;(tm.statistics||[]).forEach(function(g){var b=BOX[g.name];if(!b)return;var L=g.labels||[];
+    (g.athletes||[]).forEach(function(a){var st=a.stats||[];((out[ab]=out[ab]||{})[b[0]]=out[ab][b[0]]||[]).push([(a.athlete||{}).displayName||""].concat(b[1].map(function(w){var i=L.indexOf(w);return i>=0&&st[i]!=null?st[i]:""})))})})});return out}
+var BXT=[["p","Passing",["C/ATT","Yds","TD","INT"],2],["r","Rushing",["Car","Yds","TD","Long"],2],["c","Receiving",["Tgt","Rec","Yds","TD","Long"],3]];
+function boxHtml(g,t){var rec=(D.live||{})[g.gid],bx=rec&&rec.box&&rec.box[t];if(!bx)return"";
+  var sc=rec.sc&&rec.sc[t]!=null?'<span class="tag">'+t+" "+esc(String(rec.sc[t]))+"</span>":"",st=rec.st==="post"?'<span class="tag">Final</span>':'<span class="tag lv"><i class="ldot"></i>'+esc(rec.clk||"Live")+"</span>";
+  return '<div class="bxh"><h3>Box score</h3>'+sc+st+'</div><div class="bx">'+BXT.map(function(x){var rows=bx[x[0]]||[];if(!rows.length)return"";
+    return '<div class="tw"><table class="board"><thead><tr><th>'+x[1]+"</th>"+x[2].map(function(l){return '<th class="n">'+l+"</th>"}).join("")+"</tr></thead><tbody>"+rows.map(function(r){var td=x[0]!=="p"&&parseInt(r[x[3]+1],10)>0;
+      return "<tr"+(td?' class="sc"':"")+'><td class="pn">'+esc(r[0])+"</td>"+r.slice(1).map(function(v,i){return '<td class="n">'+(i===x[3]&&parseInt(v,10)>0?"<b>"+esc(String(v))+"</b>":esc(String(v===""?"–":v)))+"</td>"}).join("")+"</tr>"}).join("")+"</tbody></table></div>"}).join("")+"</div>"}
 function parseSummary(s){var td={},kinds={},feed=[],seen={};
   (((s.boxscore||{}).players)||[]).forEach(function(tm){var ab=(tm.team||{}).abbreviation||"";ab=ESPN_AB[ab]||ab;(tm.statistics||[]).forEach(function(g){var i=(g.labels||[]).indexOf("TD");if(g.name==="passing"||i<0)return;
     (g.athletes||[]).forEach(function(a){var n=parseInt((a.stats||[])[i],10)||0;if(n<=0)return;var full=(a.athlete||{}).displayName||"",k=norm(full);td[k]=(td[k]||0)+n;(kinds[k]=kinds[k]||{full:full,team:ab,g:{}}).g[g.name]=1})})});
@@ -677,7 +686,7 @@ function pollLive(){
     return Promise.all((sb.events||[]).map(function(e){var c=(e.competitions||[{}])[0],tm={};(c.competitors||[]).forEach(function(x){var a=(x.team||{}).abbreviation;tm[x.homeAway]=ESPN_AB[a]||a});
       var g=started.filter(function(x){return x.a===tm.away&&x.h===tm.home})[0],st=((e.status||{}).type||{}).state;
       if(!g||(st!=="in"&&st!=="post"))return null;
-      return fetch(ESPN_API+"summary?event="+e.id).then(function(r){return r.json()}).then(function(s){var ps=parseSummary(s),rec={st:st,td:ps.td,first:ps.first,ev:ps.ev,nm:ps.nm};
+      return fetch(ESPN_API+"summary?event="+e.id).then(function(r){return r.json()}).then(function(s){var ps=parseSummary(s),sc={};(c.competitors||[]).forEach(function(x){sc[tm[x.homeAway]]=x.score});var rec={st:st,td:ps.td,first:ps.first,ev:ps.ev,nm:ps.nm,box:parseBox(s),sc:sc,clk:((e.status||{}).type||{}).shortDetail||""};
         L[g.gid]=rec})}))})})).catch(function(){}).then(function(){polling=false;$("liveMsg")&&($("liveMsg").textContent="Scores checked "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+".");
     var ae=document.activeElement;if(JSON.stringify(L)!==before&&!(ae&&/INPUT|TEXTAREA|SELECT/.test(ae.tagName)))render(true)})}
 if(/^https?:$/.test(location.protocol)&&!/claude/.test(location.hostname)){setInterval(pollLive,60000);setTimeout(pollLive,1500);document.addEventListener("visibilitychange",function(){if(!document.hidden)pollLive()})}
