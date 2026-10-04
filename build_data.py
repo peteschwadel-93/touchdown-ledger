@@ -604,10 +604,12 @@ def apply_locks(sched, picks, now=None):
                 cand.append({"key": (u["gid"], r["id"]), "p": r["p"], "ev": ev, "pick": pick, "long": long_,
                              "t8": r.get("t8") if started else None, "l4": r.get("l4") if started else None})
         for flag, kind, n, rank in (("t8", "pick", 8, "p"), ("l4", "long", 4, "ev")):
-            held = [c for c in cand if c[flag] == 1]
-            free = sorted((c for c in cand if c[flag] is None and c[kind]), key=lambda c: -c[rank])[:max(0, n - len(held))]
-            for c in held + free:
-                member.setdefault(c["key"], {})[flag] = 1
+            # held players keep their place; a player whose game is still to come joins when he ranks in the best n of
+            # everyone still eligible, so the list can grow past n but never drops anybody
+            best_n = sorted((c for c in cand if c[flag] != 0 and c[kind]), key=lambda c: -c[rank])[:n]
+            for c in cand:
+                if c[flag] == 1 or (c[flag] is None and any(c is x for x in best_n)):
+                    member.setdefault(c["key"], {})[flag] = 1
     out = []
     for u in sched:
         hrs = hours[u["gid"]]

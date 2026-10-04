@@ -250,10 +250,11 @@ function cardPast(r){var sp=storedPrice(r),fp=firstPrice(r),d=sp?dec(sp[0]):null
   return{t8:r[12],l4:r[13],n:r[3],t:r[4],o:r[5],pos:r[6],home:String(r[2]).split("_")[3]===r[4],p:r[7],pr:sp?{a:sp[0],bk:sp[1]}:null,ev:e,pf:r[10],fp:fp?{a:fp[0],bk:fp[1]}:null,fev:fp&&r[10]!=null?r[10]*dec(fp[0])-1:null,res:{td:r[9]||r[8],first:!!r[11],final:true},pick:!!(d&&r[7]>=PK.p&&e>=PK.lo&&e<=PK.hi),ls:!!(d&&!(r[7]>=PK.p&&e>=PK.lo&&e<=PK.hi)&&isLong(r[7],d,e))}}
 /* every Ledger pick of a week: games still to come (live model) plus games already in the books (graded rows) */
 /* The n best of an already-sorted list, with membership fixed at each game's kickoff: flag 1 = was on the list when his game started (keeps his
-   place), 0 = was not (cannot be added later), none = game still to come, or kicked off before places were recorded (competes for what is left).
+   place), 0 = was not (cannot be added later), none = game still to come, or kicked off before places were recorded. A player with no flag joins
+   whenever he ranks in the best n of everyone still eligible, so the list can grow past n but nobody is ever dropped from it.
    Places are recorded at the best price, so choosing another book falls back to the plain ranking. */
-function heldN(list,n,flag){var plain=S.book!=="best",held=[],free=[];list.forEach(function(c){var f=plain?null:flag(c);if(f===1)held.push(c);else if(f==null)free.push(c)});
-  var ix=held.concat(free.slice(0,Math.max(0,n-held.length)));return list.filter(function(c){return ix.indexOf(c)>=0})}
+function heldN(list,n,flag){var plain=S.book!=="best",fl=list.map(function(c){return plain?null:flag(c)}),topn=list.filter(function(c,i){return fl[i]!==0}).slice(0,n);
+  return list.filter(function(c,i){return fl[i]===1||(fl[i]==null&&topn.indexOf(c)>=0)})}
 function weekPicks(season,wk){var out=[],ls=[],rows=[];
   if(season===D.season){rows=D.picks.filter(function(r){var g=gm(r.g);return g&&g.wk===wk}).map(calc);rows.forEach(function(r){if(r._pick)out.push(cardLive(r));else if(r._ls)ls.push(cardLive(r))})}
   (D.trk||[]).forEach(function(r){if(r[0]===season&&r[1]===wk&&!gm(r[2])){var c=cardPast(r);if(c.pick)out.push(c);else if(c.ls)ls.push(c)}});
@@ -317,7 +318,7 @@ function vPicks(){
   h+="</section>";
   var lrec=longRecord();
   h+='<section class="panel"><div class="phead"><h2>Long shots · experimental</h2><div class="filters">'+t8tags(W.lsTop)+'<span class="tag">'+W.ls.length+" in the tier this week</span></div></div>"+
-    '<p class="note">Four wider-odds plays: chance 10–25%, price +400 to +900, and the model says the price is at least fair. These are the four biggest edges in that tier, and places are fixed at kickoff: nobody is added or dropped once his game has started. '+(lrec?"Back-check: the whole tier "+evTxt(lrec.u/lrec.n)+" per bet over "+lrec.n+" bets; the top four a week "+evTxt(lrec.u4/lrec.n4)+" over "+lrec.n4+". ":"")+"The whole tier has been positive but no way of choosing a few from it has held up, so treat these as a small-stake experiment.</p>"+
+    '<p class="note">Four wider-odds plays: chance 10–25%, price +400 to +900, and the model says the price is at least fair. These are the four biggest edges in that tier, and places are fixed at kickoff: nobody is added or dropped once his game has started, so the list grows past four when a later game produces a bigger edge than one already locked in. '+(lrec?"Back-check: the whole tier "+evTxt(lrec.u/lrec.n)+" per bet over "+lrec.n+" bets; the top four a week "+evTxt(lrec.u4/lrec.n4)+" over "+lrec.n4+". ":"")+"The whole tier has been positive but no way of choosing a few from it has held up, so treat these as a small-stake experiment.</p>"+
     (W.lsTop.length?'<div class="pcards">'+W.lsTop.map(function(c,i){return pcard(c,i).replace('class="pcard ','class="pcard lsc ')}).join("")+"</div>":'<p class="empty">'+(isLive?"No player fits the tier right now.":"No stored prices for this week.")+"</p>")+"</section>";
   var rest=W.picks.filter(function(c){return !c.live});
   if(rest.length){var all=W.picks.filter(function(c){return plOf(c)!=null}),ua=0;all.forEach(function(c){ua+=plOf(c)});
