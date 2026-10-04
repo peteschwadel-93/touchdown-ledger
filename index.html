@@ -58,7 +58,7 @@ th[tabindex]{cursor:pointer}th[tabindex]:hover{color:var(--ink)}
 th[aria-sort]{color:var(--accent)}th[aria-sort]:after{content:" ▾"}th[aria-sort="ascending"]:after{content:" ▴"}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 td.n{color:var(--soft)}
-td.k,th.k{background:rgba(255,255,255,.035)}
+td.k,th.k{background:rgba(255,255,255,.035)}table.board{font-size:13.5px}table.board th,table.board td{padding:9px 7px}table.board th{white-space:normal;line-height:1.25;font-size:10px;letter-spacing:.06em}table.board td:first-child,table.board th:first-child{padding-left:12px}table.board td:last-child,table.board th:last-child{padding-right:12px}table.board td:first-child{white-space:normal;min-width:170px}table.board .tag{padding:3px 6px;font-size:9.5px}table.board .tlogo{width:18px;height:18px}.bk{font-size:10.5px;letter-spacing:.04em}
 tr.pick{cursor:pointer}tr.pick:hover>td{background:var(--raise)}
 tbody tr.on>td{background:var(--accent-soft)}
 tbody tr.det>td{background:var(--bg);white-space:normal;padding:18px}
@@ -262,10 +262,12 @@ function pool(){return poolWk(S.wk)}
 /* ---------- Picks ---------- */
 /* board columns: [label, sort value, tooltip, class] */
 var BC=[["Player",function(r){return r.n},"",""],["Game",function(r){return r.t},"",""],["Model",function(r){return r.p},"","n k"],["Fair",function(r){return r.p},"","n k"],
-  ["Price",function(r){return r._pr?dec(r._pr.a):null},"Best price found","n"],["Implied",function(r){return r._imp},"","n"],["Edge",function(r){return r._ev},"","n k"],["Blend",function(r){return r._k},"Kelly stake","n"],
-  ["Rush share",function(r){return r.rs},"Share of the team's rushing touchdown chances","n"],["Target share",function(r){return r.ts},"Share of the team's receiving touchdown chances","n"],
+  ["Price",function(r){return r._pr?dec(r._pr.a):null},"Best price found","n"],["Impl.",function(r){return r._imp},"Chance implied by the price","n"],["Edge",function(r){return r._ev},"","n k"],["Blend",function(r){return r._k},"Kelly stake","n"],
+  ["Rush sh.",function(r){return r.rs},"Share of the team's rushing touchdown chances","n"],["Tgt sh.",function(r){return r.ts},"Share of the team's receiving touchdown chances","n"],
   ["xTD/g",function(r){return r.x},"Expected touchdowns per game from his carries and targets","n"],["Team TDs",function(r){return r.T},"Team touchdowns expected from the betting total and spread","n"],
   ["1st TD fair",function(r){return r.pf},"Model fair price to score the first touchdown","n k"],["1st TD price",function(r){return r._fp?dec(r._fp.a):null},"Best first-touchdown price found","n"],["1st TD edge",function(r){return r._fev},"Model first-TD chance × price − 1","n k"]];
+var BKAB={"DraftKings":"DK","FanDuel":"FD","BetMGM":"MGM","Caesars":"CZR","BetRivers":"BRV","Fanatics":"FAN","Bovada":"BOV","BetOnline.ag":"BOL","Your price":"YOU","ESPN BET":"ESPN","Hard Rock Bet":"HR","bet365":"365","Fliff":"FLF","LowVig.ag":"LV","MyBookie.ag":"MB","BetUS":"BUS"};
+function bkAb(b){if(!b)return"";return '<span class="o bk" title="'+esc(b)+'">'+esc(BKAB[b]||String(b).replace(/[^A-Za-z0-9]/g,"").slice(0,3).toUpperCase())+"</span>"}
 function topCard(title,blurb,rows,val,sub,lead,emptyMsg){
   var h='<div class="rcard'+(lead?" lead":"")+'"><h3>'+title+"</h3><p>"+blurb+"</p>";
   if(!rows.length)return h+'<p class="empty">'+emptyMsg+"</p></div>";
@@ -316,10 +318,10 @@ function vPicks(){
     (books.length?'<label class="f" for="selBook">Book <select id="selBook"><option value="best">Best price</option>'+books.map(function(b){return '<option'+(S.book===b?" selected":"")+">"+esc(b)+"</option>"}).join("")+"</select></label>"+
     '<label class="f">Show '+seg("seg-priced",[[0,"All"],[1,"Priced"],[2,"Picks"],[3,"Top 8"],[4,"Long shots"]],S.priced)+"</label>":"")+"</div></div>";
   h+='<p class="note">Click any column heading to sort by it. Open a row for the full working: team touchdowns, run/pass split, the player\'s share of each, recent usage, and a box for your own price. '+list.length+" players shown.</p>";
-  h+='<div class="tw"><table><thead><tr>'+BC.map(function(c,i){return '<th tabindex="0" data-bs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(S.bsort&&S.bsort[0]===i?' aria-sort="'+(S.bsort[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+"</tr></thead><tbody>";
+  h+='<div class="tw"><table class="board"><thead><tr>'+BC.map(function(c,i){return '<th tabindex="0" data-bs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(S.bsort&&S.bsort[0]===i?' aria-sort="'+(S.bsort[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+"</tr></thead><tbody>";
   if(!list.length)h+='<tr><td colspan="15" class="o">No players match these filters.</td></tr>';
   list.slice(0,S.game==="all"?150:999).forEach(function(r){var id=r.g+"|"+r.id,on=S.open===id;
-    h+='<tr class="pick'+(on?" on":"")+'" tabindex="0" data-open="'+esc(id)+'"><td><span class="tag pos">'+r.pos+'</span> <span class="pn">'+esc(r.n)+"</span>"+injTag(r)+pickTag(r)+'</td><td>'+tmL(r.t)+' <span class="o">'+vsTxt(r)+'</span></td><td class="n k"><b>'+pct(r.p,1)+"</b>"+meter(r.p)+'</td><td class="n k">'+amer(r.p)+'</td><td class="n">'+(r._pr?fmtA(r._pr.a)+' <span class="o">'+esc(r._pr.bk)+"</span>":'<span class="o">–</span>')+'</td><td class="n">'+pct(r._imp,1)+'</td><td class="n k"><span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+'</span></td><td class="n">'+(r._k==null?"–":r._k>0?(r._k*100).toFixed(1)+"%":"0")+'</td><td class="n">'+pct(r.rs)+'</td><td class="n">'+pct(r.ts)+'</td><td class="n">'+f2(r.x)+'</td><td class="n">'+f2(r.T)+'</td><td class="n k">'+amer(r.pf)+'</td><td class="n">'+(r._fp?fmtA(r._fp.a)+' <span class="o">'+esc(r._fp.bk)+"</span>":'<span class="o">–</span>')+'</td><td class="n k"><span class="ev '+evCls(r._fev)+'">'+evTxt(r._fev)+"</span></td></tr>";
+    h+='<tr class="pick'+(on?" on":"")+'" tabindex="0" data-open="'+esc(id)+'"><td><span class="tag pos">'+r.pos+'</span> <span class="pn">'+esc(r.n)+"</span>"+injTag(r)+pickTag(r)+'</td><td>'+tmL(r.t)+' <span class="o">'+vsTxt(r)+'</span></td><td class="n k"><b>'+pct(r.p,1)+'</b></td><td class="n k">'+amer(r.p)+'</td><td class="n">'+(r._pr?fmtA(r._pr.a)+" "+bkAb(r._pr.bk):'<span class="o">–</span>')+'</td><td class="n">'+pct(r._imp,1)+'</td><td class="n k"><span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+'</span></td><td class="n">'+(r._k==null?"–":r._k>0?(r._k*100).toFixed(1)+"%":"0")+'</td><td class="n">'+pct(r.rs)+'</td><td class="n">'+pct(r.ts)+'</td><td class="n">'+f2(r.x)+'</td><td class="n">'+f2(r.T)+'</td><td class="n k">'+amer(r.pf)+'</td><td class="n">'+(r._fp?fmtA(r._fp.a)+" "+bkAb(r._fp.bk):'<span class="o">–</span>')+'</td><td class="n k"><span class="ev '+evCls(r._fev)+'">'+evTxt(r._fev)+"</span></td></tr>";
     if(on)h+='<tr class="det"><td colspan="15">'+detail(r)+"</td></tr>"});
   h+="</tbody></table></div>"+(list.length>150&&S.game==="all"?'<p class="note">Showing the top 150. Narrow by game or position to see the rest.</p>':"")+"</section>";
   return h}
