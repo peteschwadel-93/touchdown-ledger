@@ -89,7 +89,7 @@ tbody tr.det>td{background:var(--bg);white-space:normal;padding:18px}
 .kv{display:flex;flex-wrap:wrap;gap:6px 24px;font-size:13.5px;color:var(--muted);align-items:baseline}
 .kv b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
 .empty{color:var(--muted);padding:6px 0;margin:0}
-.pcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:14px}
+.pcards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}@media(max-width:1150px){.pcards{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.pcards{grid-template-columns:minmax(0,1fr)}}
 .pcard{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-width:0;position:relative}
 .pcard[data-open]{cursor:pointer}.pcard[data-open]:hover{border-color:var(--accent)}.pcard:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .pc-top{display:flex;align-items:center;gap:8px;font-size:12.5px}.pc-top>:last-child{margin-left:auto}
@@ -177,7 +177,7 @@ code{font:400 12.5px var(--mono);background:var(--sunk);padding:2px 6px;border-r
 "use strict";
 var $=function(id){return document.getElementById(id)};
 var D=null,served=/^https?:$/.test(location.protocol)&&/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-var S={tab:"picks",wk:null,sort:"value",pos:"all",game:"all",book:"best",minp:0.1,priced:0,open:null,gsel:null,pseason:null,ppos:"all",pq:"",psort:[10,-1],tview:"off",bsort:null,tseason:null,hs:null,hw:null,tsort:{off:[1,-1],def:[1,-1]},twk:0,pk:{}};
+var S={tab:"picks",wk:null,sort:"value",pos:"all",game:"all",book:"best",minp:0.1,priced:0,open:null,gsel:null,pseason:null,ppos:"all",pq:"",psort:[10,-1],tview:"off",bsort:null,gsort:null,tseason:null,hs:null,hw:null,tsort:{off:[1,-1],def:[1,-1]},twk:0,pk:{}};
 function ls(k,v){try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||"null");localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
 var MAN=ls("atd-manual")||{},PASTE=ls("atd-paste")||{};
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
@@ -331,6 +331,9 @@ function logTable(r){if(!r.log||!r.log.length)return'<p class="empty">No games o
   return '<div class="tw"><table class="mini"><thead><tr><th>Wk</th><th>Opp</th><th class="n">Snaps</th><th class="n">Car</th><th class="n">Tgt</th><th class="n" title="Carries inside the 5">In 5</th><th class="n" title="End-zone targets">EZ</th><th class="n" title="Red-zone carries and targets">RZ</th><th class="n">xTD</th><th class="n">TD</th></tr></thead><tbody>'+r.log.slice().reverse().map(function(l){return "<tr><td>"+l[0]+"</td><td>"+l[1]+'</td><td class="n">'+pct(l[2])+'</td><td class="n">'+l[3]+'</td><td class="n">'+l[4]+'</td><td class="n">'+l[5]+'</td><td class="n">'+l[6]+'</td><td class="n">'+l[7]+'</td><td class="n">'+f2(l[8])+'</td><td class="n">'+(l[9]?'<span class="tag w">'+l[9]+"</span>":"0")+"</td></tr>"}).join("")+"</tbody></table></div>"}
 
 /* ---------- Games ---------- */
+var GC=[["Player",function(r){return r.n},"",""],["Model",function(r){return r.p},"","n k"],["Fair",function(r){return r.p},"","n k"],["Price",function(r){return r._pr?dec(r._pr.a):null},"Best price found","n"],["Edge",function(r){return r._ev},"","n k"],
+  ["1st fair",function(r){return r.pf},"Model fair first-TD price","n"],["1st price",function(r){return r._fp?dec(r._fp.a):null},"Best first-TD price","n"],["1st edge",function(r){return r._fev},"","n k"],
+  ["Rush",function(r){return r.rs},"Share of the team's rushing touchdown chances","n"],["Tgt",function(r){return r.ts},"Share of the team's receiving touchdown chances","n"],["Snaps",function(r){return r.sn},"Recent snap share","n"]];
 function vGames(){
   var gs=D.sched.filter(function(g){return g.wk===S.wk});if(!gs.length)return'<section class="panel"><p class="empty">No upcoming games with a betting line yet.</p></section>';
   var T=D.teams[String(D.season)]||{},all=poolWk(S.wk);
@@ -339,10 +342,10 @@ function vGames(){
   gs.forEach(function(g){var od=oddsFor(g.gid);
     h+='<section class="panel" id="game-'+g.gid+'"><div class="matchhead"><div class="side"><h3>Away · implied</h3><span class="who tml">'+lg(g.a)+g.a+'</span><span class="big">'+f2(g.ia,1)+'</span></div><div class="mid"><b>'+g.tot+"</b>total<br>"+(g.sp>0?g.h+" −"+g.sp:g.sp<0?g.a+" −"+(-g.sp):"pick ’em")+"<br>"+esc(g.t)+(g.roof?"<br>"+esc(g.roof):"")+'</div><div class="side r"><h3>Home · implied</h3><span class="who tml">'+lg(g.h)+g.h+'</span><span class="big">'+f2(g.ih,1)+"</span></div></div>";
     h+='<p class="note">'+(od.books.length?"Prices from "+od.books.length+" books, pulled "+esc((od.at||"").replace("T"," "))+" ET.":"No prices loaded for this game yet; the fair column is the price to beat.")+"</p>";
-    h+='<div class="grid2">'+[g.a,g.h].map(function(t){var opp=t===g.a?g.h:g.a,rows=all.filter(function(r){return r.g===g.gid&&r.t===t}).sort(function(a,b){return b.p-a.p}),o=T[t],d=T[opp]&&T[opp].d;
+    h+='<div class="grid2">'+[g.a,g.h].map(function(t){var opp=t===g.a?g.h:g.a,rows=all.filter(function(r){return r.g===g.gid&&r.t===t}).sort(function(a,b){if(!S.gsort)return b.p-a.p;var f=GC[S.gsort[0]][1],x=f(a),y=f(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return (typeof x==="string"?x.localeCompare(y):x-y)*S.gsort[1]}),o=T[t],d=T[opp]&&T[opp].d;
       var s='<div class="gcard"><div class="phead"><h2 class="tml">'+lg(t)+t+"</h2>"+(rows[0]?'<span class="tag">'+f2(rows[0].T)+" team TDs · "+pct(rows[0].sp)+" by run</span>":"")+"</div>";
       if(o&&d)s+='<div class="kv"><span>'+t+" offence <b>"+f2(o.td)+"</b> TD/g ("+f2(o.rtd)+" rush, "+f2(o.ctd)+" rec)</span><span>"+opp+" defence allows <b>"+f2(d.td)+"</b> TD/g · RB <b>"+f2(d.rb)+"</b> · WR <b>"+f2(d.wr)+"</b> · TE <b>"+f2(d.te)+"</b> · QB <b>"+f2(d.qb)+"</b></span></div>";
-      s+='<div class="tw"><table><thead><tr><th>Player</th><th class="n k">Model</th><th class="n k">Fair</th><th class="n">Price</th><th class="n k">Edge</th><th class="n" title="Model fair first-TD price">1st fair</th><th class="n" title="Best first-TD price">1st price</th><th class="n k">1st edge</th><th class="n">Rush</th><th class="n">Tgt</th><th class="n">Snaps</th></tr></thead><tbody>'+rows.map(function(r){var id=r.g+"|"+r.id,on=S.open===id;
+      s+='<div class="tw"><table><thead><tr>'+GC.map(function(c,i){return '<th tabindex="0" data-gs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(S.gsort&&S.gsort[0]===i?' aria-sort="'+(S.gsort[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+'</tr></thead><tbody>'+rows.map(function(r){var id=r.g+"|"+r.id,on=S.open===id;
         return '<tr class="pick'+(on?" on":"")+'" tabindex="0" data-open="'+esc(id)+'"><td><span class="tag pos">'+r.pos+'</span> <span class="pn">'+esc(r.n)+"</span>"+injTag(r)+pickTag(r)+'</td><td class="n k"><b>'+pct(r.p,1)+'</b></td><td class="n k">'+amer(r.p)+'</td><td class="n">'+(r._pr?fmtA(r._pr.a):"–")+'</td><td class="n k"><span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+'</span></td><td class="n">'+amer(r.pf)+'</td><td class="n">'+(r._fp?fmtA(r._fp.a):"–")+'</td><td class="n k"><span class="ev '+evCls(r._fev)+'">'+evTxt(r._fev)+'</span></td><td class="n">'+pct(r.rs)+'</td><td class="n">'+pct(r.ts)+'</td><td class="n">'+pct(r.sn)+"</td></tr>"+(on?'<tr class="det"><td colspan="11">'+detail(r)+"</td></tr>":"")}).join("")+"</tbody></table></div>";
       var out=(g.out||{})[t]||[];if(out.length)s+='<p class="note"><b>Ruled out or doubtful:</b> '+out.map(function(x){return esc(x[0])+" ("+x[1]+(x[3]?", "+esc(x[3].toLowerCase()):"")+")"}).join(", ")+". Their chances are spread over the players listed.</p>";
       return s+"</div>"}).join("")+"</div></section>"});
@@ -498,6 +501,7 @@ document.addEventListener("click",function(e){
   if(t.closest("#pasteBtn")){paste();return}
   if(t.closest("form,input,textarea,select,details.how,.det"))return;
   if((b=t.closest("th[data-bs]"))){var bi=+b.dataset.bs;S.bsort=S.bsort&&S.bsort[0]===bi?[bi,-S.bsort[1]]:[bi,bi<2?1:-1];render(true);return}
+  if((b=t.closest("th[data-gs]"))){var gi=+b.dataset.gs;S.gsort=S.gsort&&S.gsort[0]===gi?[gi,-S.gsort[1]]:[gi,gi<1?1:-1];render(true);return}
   if((b=t.closest("th[data-ps]"))){S.psort=setSort(S.psort,+b.dataset.ps);render(true);return}
   if((b=t.closest("th[data-ts]"))){S.tsort[S.tview]=setSort(S.tsort[S.tview],+b.dataset.ts);render(true);return}
   if((b=t.closest("[data-open]"))){var id2=b.dataset.open;
