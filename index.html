@@ -243,6 +243,11 @@ function pcard(c,i){var r=c.res,st=r&&r.first?"first":r&&r.td>0?"hit":r&&r.final
     '<div class="pc-game">'+lg(c.t)+"<b>"+c.t+"</b> "+(c.live?(c.home?"vs ":"@ "):"v ")+c.o+(c.row?injTag(c.row):"")+"</div>"+
     '<div class="pc-nums"><div><b>'+pct(c.p)+"</b><span>model</span></div><div><b>"+fmtA(c.pr.a)+"</b><span>"+esc(c.pr.bk||"best")+'</span></div><div><b class="ev '+evCls(c.ev)+'">'+evTxt(c.ev)+"</b><span>edge</span></div></div>"+
     '<div class="pc-foot">Fair '+amer(c.p)+(c.fp?" · 1st TD "+fmtA(c.fp.a)+' <span class="ev '+evCls(c.fev)+'">'+evTxt(c.fev)+"</span>":c.pf!=null?" · 1st TD fair "+amer(c.pf):"")+"</div></article>"}
+function fplOf(c){return !c.res||!c.fp?null:c.res.first?dec(c.fp.a)-1:c.res.final?-1:null}
+function t8tags(top){var done=top.filter(function(c){return plOf(c)!=null}),u=0;if(!done.length)return"";done.forEach(function(c){u+=plOf(c)});
+  var firsts=top.filter(function(c){return c.res&&c.res.first}).length,fd=top.filter(function(c){return fplOf(c)!=null}),fu=0;fd.forEach(function(c){fu+=fplOf(c)});
+  var n=done.length<top.length?done.length+" settled":top.length;
+  return '<span class="tag">'+done.filter(function(c){return c.res.td>0}).length+" of "+n+" scored · "+(u>=0?"+":"")+f2(u,1)+'u</span><span class="tag'+(firsts?" fst":"")+'" title="'+(fd.length?"Units if each of these was also bet to score first, at the stored first-TD price":"No first-TD prices stored for this week, so only the count is shown")+'">First TD: '+firsts+" of "+n+(fd.length?" · "+(fu>=0?"+":"")+f2(fu,1)+"u":"")+"</span>"}
 function seasonWeeks(s){var w={};(D.trk||[]).forEach(function(r){if(r[0]===s)w[r[1]]=1});if(s===D.season)weeks().forEach(function(x){w[x]=1});return Object.keys(w).map(Number).sort(function(a,b){return a-b})}
 function pool(){return poolWk(S.wk)}
 
@@ -270,15 +275,13 @@ function vPicks(){
   var isLive=S.hs===D.season&&weeks().indexOf(S.hw)>=0;if(isLive)S.wk=S.hw;
   var W=weekPicks(S.hs,S.hw),rows=W.rows,priced=rows.filter(function(r){return r._pr}),games=D.sched.filter(function(g){return g.wk===S.wk}),rec=pickRecord();
   var withP=games.filter(function(g){return oddsFor(g.gid).books.length}).length,meta=(D.odds||{})._meta||{};
-  var h='<section class="panel"><div class="phead"><h2>Top 8 · Week '+wkLab(S.hs,S.hw)+(ss.length>1?" · "+S.hs:"")+'</h2><div class="filters">'+
+  var h='<section class="panel"><div class="phead"><h2>Top 8 · Week '+wkLab(S.hs,S.hw)+(ss.length>1?" · "+S.hs:"")+'</h2><div class="filters">'+t8tags(W.top)+
     (ss.length>1?'<label class="f">Season '+seg("seg-hs",ss.map(function(y){return[y,y]}),S.hs)+"</label>":"")+
     '<label class="f" for="selHw">Week <select id="selHw">'+wl.map(function(w){return '<option value="'+w+'"'+(w===S.hw?" selected":"")+">"+wkLab(S.hs,w)+(S.hs===D.season&&weeks().indexOf(w)>=0?" · upcoming":"")+"</option>"}).join("")+"</select></label></div></div>";
   h+='<p class="note">The eight likeliest scorers among Ledger picks: chance 20%+ with an edge of 3% to 25% at the best price across books. '+(rec?"Back-check: top 8 a week "+evTxt(rec.u8/rec.n8)+" per bet over "+rec.n8+" bets; all picks "+evTxt(rec.u/rec.n)+" over "+rec.n+". ":"")+"Cards turn green when the player scores and gold if he scores first."+(isLive?' Scores are checked every minute while this page is open. <span id="liveMsg"></span>':"")+
     (isLive?(withP?" Prices in for "+withP+" of "+games.length+" games.":" <b>No prices loaded yet for this week.</b>")+(meta.left!=null?" Odds API requests left: <b>"+meta.left+"</b>.":"")+(meta.err?" Last price pull failed: "+esc(meta.err)+".":""):"")+"</p>";
   if(W.top.length){
     h+='<div class="pcards">'+W.top.map(pcard).join("")+"</div>";
-    var done=W.top.filter(function(c){return plOf(c)!=null}),u=0,f=0;done.forEach(function(c){u+=plOf(c);if(c.res.first)f++});
-    if(done.length)h+='<div class="kv"><span>Settled: <b>'+done.length+" of "+W.top.length+"</b></span><span>Scored: <b>"+done.filter(function(c){return c.res.td>0}).length+"</b></span><span>First TDs: <b>"+f+"</b></span><span>Units: <b>"+(u>=0?"+":"")+f2(u)+"</b></span></div>";
   }else h+='<p class="empty">'+(isLive?(priced.length?"No player passes the rule right now. Check again after the next price pull.":"Picks appear once prices are loaded for this week."):"No stored prices for this week, so there are no picks to show.")+"</p>";
   if(isLive)h+=priceHelp();
   h+="</section>";
