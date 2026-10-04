@@ -106,7 +106,7 @@ tbody tr.det>td{background:var(--bg);white-space:normal;padding:18px}
 .pcard.first .pc-name{color:var(--accent)}
 .pcard.miss{opacity:.55}
 @keyframes firstglow{50%{box-shadow:0 0 0 2px var(--accent),0 0 70px 2px var(--accent)}}
-.tag.fst{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.tag.fst{background:var(--accent);color:var(--accent-ink);border-color:transparent}.tag.lsg{color:#c9a6f5;border-color:color-mix(in srgb,#c9a6f5 45%,transparent)}.pcard.lsc{border-style:dashed}.pcard.lsc .pc-rank{color:#c9a6f5}
 .tag.lv{color:var(--made);border-color:color-mix(in srgb,var(--made) 45%,transparent)}
 .ldot{width:7px;height:7px;border-radius:50%;background:var(--made);display:inline-block;margin-right:6px;vertical-align:1px;animation:lpulse 1.8s ease-in-out infinite}
 @keyframes lpulse{50%{opacity:.35}}
@@ -207,8 +207,12 @@ function firstOf(r){var by=oddsFor(r.g).byf[norm(r.n)];if(!by)return null;if(S.b
   var best=null;Object.keys(by).forEach(function(b){if(!best||dec(by[b])>dec(best.a))best={a:by[b],bk:b}});return best}
 function calc(r){var pr=priceOf(r);r._pr=pr;if(pr){var d=dec(pr.a);r._imp=1/d;r._ev=r.p*d-1;r._k=r._ev/(d-1)}else{r._imp=r._ev=r._k=null}
   var fp=firstOf(r);r._fp=fp;r._fev=fp?r.pf*dec(fp.a)-1:null;
-  r._pick=!!(pr&&r.p>=PK.p&&r._ev>=PK.lo&&r._ev<=PK.hi);r._top=false;return r}
-function pickTag(r){return r._top?' <span class="tag t8" title="One of the eight likeliest scorers among this week\'s Ledger picks">Top 8</span>':r._pick?' <span class="tag pk" title="Passes the Picks rule: chance 20%+, edge 3% to 25% at the best price">Pick</span>':(r._ev!=null&&r._ev>PK.hi&&r.p>=0.08?' <span class="tag hot" title="Edges above 25% have lost money in the back-check. The book usually knows something.">Too good?</span>':"")}
+  r._pick=!!(pr&&r.p>=PK.p&&r._ev>=PK.lo&&r._ev<=PK.hi);r._top=false;r._lst=false;
+  var dd=pr?dec(pr.a):0;r._ls=!!(pr&&!r._pick&&isLong(r.p,dd,r._ev));r._warn=dd>=10&&dd<15;return r}
+/* Long shots (experimental): chance 10-25%, price +400 to +900, model says the price is at least fair */
+function isLong(p,d,e){return p>=0.10&&p<0.25&&d>=5&&d<10&&e>0}
+function pickTag(r){return (r._lst?' <span class="tag lsg" title="One of this week\'s four long shots: chance 10–25%, price +400 to +900, positive edge. Experimental.">Long shot</span>':"")+(r._warn?' <span class="tag hot" title="Prices from +900 to +1400 lost 26% per bet in the back-check, in every period">Avoid band</span>':"")+pickTag0(r)}
+function pickTag0(r){return r._top?' <span class="tag t8" title="One of the eight likeliest scorers among this week\'s Ledger picks">Top 8</span>':r._pick?' <span class="tag pk" title="Passes the Picks rule: chance 20%+, edge 3% to 25% at the best price">Pick</span>':(r._ev!=null&&r._ev>PK.hi&&r.p>=0.08?' <span class="tag hot" title="Edges above 25% have lost money in the back-check. The book usually knows something.">Too good?</span>':"")}
 function evCls(e){return e==null?"":e>=0.15?"p2":e>=0.03?"p1":e>=0?"p0":"neg"}
 function evTxt(e){return e==null?"–":(e>=0?"+":"")+(e*100).toFixed(0)+"%"}
 var ESPN={LA:"lar",WAS:"wsh"};
@@ -226,15 +230,16 @@ function meter(p,max){return '<span class="meter"><i style="width:'+Math.min(100
 function seg(id,opts,cur){return '<span class="seg" id="'+id+'">'+opts.map(function(o){return '<button data-v="'+esc(o[0])+'" aria-pressed="'+(String(o[0])===String(cur))+'">'+esc(o[1])+"</button>"}).join("")+"</span>"}
 function weeks(){var w=[];D.sched.forEach(function(g){if(w.indexOf(g.wk)<0)w.push(g.wk)});return w}
 function liveRes(r){var L=(D.live||{})[r.g];if(!L)return null;var k=norm(r.n);return{td:(L.td||{})[k]||0,first:L.first===k,final:L.st==="post"}}
-function cardLive(r){var g=gm(r.g);return{live:1,key:r.g+"|"+r.id,row:r,n:r.n,t:r.t,o:r.o,pos:r.pos,p:r.p,pr:r._pr,ev:r._ev,pf:r.pf,fp:r._fp,fev:r._fev,home:g.h===r.t,when:g.t,res:liveRes(r),pick:r._pick}}
+function cardLive(r){var g=gm(r.g);return{live:1,key:r.g+"|"+r.id,row:r,n:r.n,t:r.t,o:r.o,pos:r.pos,p:r.p,pr:r._pr,ev:r._ev,pf:r.pf,fp:r._fp,fev:r._fev,home:g.h===r.t,when:g.t,res:liveRes(r),pick:r._pick,ls:r._ls}}
 function cardPast(r){var sp=storedPrice(r),fp=firstPrice(r),d=sp?dec(sp[0]):null,e=d?r[7]*d-1:null;
-  return{n:r[3],t:r[4],o:r[5],pos:r[6],p:r[7],pr:sp?{a:sp[0],bk:sp[1]}:null,ev:e,pf:r[10],fp:fp?{a:fp[0],bk:fp[1]}:null,fev:fp&&r[10]!=null?r[10]*dec(fp[0])-1:null,res:{td:r[9]||r[8],first:!!r[11],final:true},pick:!!(d&&r[7]>=PK.p&&e>=PK.lo&&e<=PK.hi)}}
+  return{n:r[3],t:r[4],o:r[5],pos:r[6],p:r[7],pr:sp?{a:sp[0],bk:sp[1]}:null,ev:e,pf:r[10],fp:fp?{a:fp[0],bk:fp[1]}:null,fev:fp&&r[10]!=null?r[10]*dec(fp[0])-1:null,res:{td:r[9]||r[8],first:!!r[11],final:true},pick:!!(d&&r[7]>=PK.p&&e>=PK.lo&&e<=PK.hi),ls:!!(d&&!(r[7]>=PK.p&&e>=PK.lo&&e<=PK.hi)&&isLong(r[7],d,e))}}
 /* every Ledger pick of a week: games still to come (live model) plus games already in the books (graded rows) */
-function weekPicks(season,wk){var out=[],rows=[];
-  if(season===D.season){rows=D.picks.filter(function(r){var g=gm(r.g);return g&&g.wk===wk}).map(calc);rows.forEach(function(r){if(r._pick)out.push(cardLive(r))})}
-  (D.trk||[]).forEach(function(r){if(r[0]===season&&r[1]===wk&&!gm(r[2])){var c=cardPast(r);if(c.pick)out.push(c)}});
+function weekPicks(season,wk){var out=[],ls=[],rows=[];
+  if(season===D.season){rows=D.picks.filter(function(r){var g=gm(r.g);return g&&g.wk===wk}).map(calc);rows.forEach(function(r){if(r._pick)out.push(cardLive(r));else if(r._ls)ls.push(cardLive(r))})}
+  (D.trk||[]).forEach(function(r){if(r[0]===season&&r[1]===wk&&!gm(r[2])){var c=cardPast(r);if(c.pick)out.push(c);else if(c.ls)ls.push(c)}});
   out.sort(function(a,b){return b.p-a.p});out.slice(0,8).forEach(function(c){c.top=true;if(c.row)c.row._top=true});
-  return{rows:rows,picks:out,top:out.slice(0,8)}}
+  ls.sort(function(a,b){return b.ev-a.ev});ls.slice(0,4).forEach(function(c){c.lsTop=true;if(c.row)c.row._lst=true});
+  return{rows:rows,picks:out,top:out.slice(0,8),ls:ls,lsTop:ls.slice(0,4)}}
 function poolWk(wk){return weekPicks(D.season,wk).rows}
 function plOf(c){return !c.res||!c.pr?null:c.res.td>0?dec(c.pr.a)-1:c.res.final?-1:null}
 function pcard(c,i){var r=c.res,st=r&&r.first?"first":r&&r.td>0?"hit":r&&r.final?"miss":r?"live":"";
@@ -288,6 +293,10 @@ function vPicks(){
   }else h+='<p class="empty">'+(isLive?(priced.length?"No player passes the rule right now. Check again after the next price pull.":"Picks appear once prices are loaded for this week."):"No stored prices for this week, so there are no picks to show.")+"</p>";
   if(isLive)h+=priceHelp();
   h+="</section>";
+  var lrec=longRecord();
+  h+='<section class="panel"><div class="phead"><h2>Long shots · experimental</h2><div class="filters">'+t8tags(W.lsTop)+'<span class="tag">'+W.ls.length+" in the tier this week</span></div></div>"+
+    '<p class="note">Four wider-odds plays: chance 10–25%, price +400 to +900, and the model says the price is at least fair. These are the four biggest edges in that tier. '+(lrec?"Back-check: the whole tier "+evTxt(lrec.u/lrec.n)+" per bet over "+lrec.n+" bets; the top four a week "+evTxt(lrec.u4/lrec.n4)+" over "+lrec.n4+". ":"")+"The whole tier has been positive but no way of choosing a few from it has held up, so treat these as a small-stake experiment.</p>"+
+    (W.lsTop.length?'<div class="pcards">'+W.lsTop.map(function(c,i){return pcard(c,i).replace('class="pcard ','class="pcard lsc ')}).join("")+"</div>":'<p class="empty">'+(isLive?"No player fits the tier right now.":"No stored prices for this week.")+"</p>")+"</section>";
   var rest=W.picks.filter(function(c){return !c.live});
   if(rest.length){var all=W.picks.filter(function(c){return plOf(c)!=null}),ua=0;all.forEach(function(c){ua+=plOf(c)});
     h+='<section class="panel"><div class="phead"><h2>'+(isLive?"Already played this week":"Every Ledger pick that week")+'</h2><span class="tag">'+all.filter(function(c){return c.res.td>0}).length+" of "+all.length+" scored · "+(ua>=0?"+":"")+f2(ua,1)+'u</span></div><div class="tw"><table><thead><tr><th>Player</th><th>Game</th><th class="n k">Model</th><th class="n">Price</th><th class="n k">Edge</th><th class="n">1st TD price</th><th class="n k">1st TD edge</th><th>Result</th><th class="n">Units</th></tr></thead><tbody>'+
@@ -295,7 +304,7 @@ function vPicks(){
   if(!isLive)return h;
   /* board */
   var books=allBooks();
-  var list=rows.filter(function(r){return (S.pos==="all"||r.pos===S.pos)&&(S.game==="all"||r.g===S.game)&&(S.priced===3?r._top:S.priced===2?r._pick:r.p>=S.minp&&(!S.priced||r._pr))});
+  var list=rows.filter(function(r){return (S.pos==="all"||r.pos===S.pos)&&(S.game==="all"||r.g===S.game)&&(S.priced===4?r._ls:S.priced===3?r._top:S.priced===2?r._pick:r.p>=S.minp&&(!S.priced||r._pr))});
   var key={value:function(r){return r._ev==null?-9:r._ev},blend:function(r){return r._k==null?-9:r._k},likely:function(r){return r.p}}[S.sort];
   if(S.bsort){var bf=BC[S.bsort[0]][1],bd=S.bsort[1];list.sort(function(a,b){var x=bf(a),y=bf(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return (typeof x==="string"?x.localeCompare(y):x-y)*bd})}
   else list.sort(function(a,b){return key(b)-key(a)||b.p-a.p});
@@ -305,7 +314,7 @@ function vPicks(){
     '<label class="f">Position '+seg("seg-pos",[["all","All"],["RB","RB"],["WR","WR"],["TE","TE"],["QB","QB"]],S.pos)+"</label>"+
     '<label class="f" for="selGame">Game <select id="selGame"><option value="all">All games</option>'+games.map(function(g){return '<option value="'+g.gid+'"'+(S.game===g.gid?" selected":"")+">"+g.a+" @ "+g.h+"</option>"}).join("")+"</select></label>"+
     (books.length?'<label class="f" for="selBook">Book <select id="selBook"><option value="best">Best price</option>'+books.map(function(b){return '<option'+(S.book===b?" selected":"")+">"+esc(b)+"</option>"}).join("")+"</select></label>"+
-    '<label class="f">Show '+seg("seg-priced",[[0,"All"],[1,"Priced"],[2,"Picks"],[3,"Top 8"]],S.priced)+"</label>":"")+"</div></div>";
+    '<label class="f">Show '+seg("seg-priced",[[0,"All"],[1,"Priced"],[2,"Picks"],[3,"Top 8"],[4,"Long shots"]],S.priced)+"</label>":"")+"</div></div>";
   h+='<p class="note">Click any column heading to sort by it. Open a row for the full working: team touchdowns, run/pass split, the player\'s share of each, recent usage, and a box for your own price. '+list.length+" players shown.</p>";
   h+='<div class="tw"><table><thead><tr>'+BC.map(function(c,i){return '<th tabindex="0" data-bs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(S.bsort&&S.bsort[0]===i?' aria-sort="'+(S.bsort[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+"</tr></thead><tbody>";
   if(!list.length)h+='<tr><td colspan="15" class="o">No players match these filters.</td></tr>';
@@ -400,6 +409,9 @@ function top8(pk){var by={},out=[];pk.forEach(function(b){var k=b.r[0]+"|"+b.r[1
 function firstPrice(r){var o=(D.odds||{})[r[2]];if(!o)return null;if(!o._fx){o._fx={};(o.bestf||[]).forEach(function(x){o._fx[norm(x[0])]=[x[1],x[2]]});
     if(o.f)Object.keys(o.f).forEach(function(bk){o.f[bk].forEach(function(x){var n=norm(x[0]);if(!o._fx[n]||dec(x[1])>dec(o._fx[n][0]))o._fx[n]=[x[1],bk]})})}
   return o._fx[norm(r[3])]||null}
+function isLs(b){return !isPk(b)&&isLong(b.r[7],dec(b.a),b.e)}
+function top4(ls){var by={},out=[];ls.forEach(function(b){var k=b.r[0]+"|"+b.r[1];(by[k]=by[k]||[]).push(b)});Object.keys(by).forEach(function(k){out=out.concat(by[k].sort(function(a,b){return b.e-a.e}).slice(0,4))});return out}
+var _lrec;function longRecord(){if(_lrec!==undefined)return _lrec;var x=gradeAll(D.trk||[]).filter(isLs),u=0,t=top4(x),u4=0;x.forEach(function(b){u+=b.pl});t.forEach(function(b){u4+=b.pl});return _lrec=x.length?{n:x.length,u:u,n4:t.length,u4:u4}:null}
 var _rec;function pickRecord(){if(_rec!==undefined)return _rec;var x=gradeAll(D.trk||[]).filter(isPk),u=0,t=top8(x),u8=0;x.forEach(function(b){u+=b.pl});t.forEach(function(b){u8+=b.pl});return _rec=x.length?{n:x.length,u:u,n8:t.length,u8:u8}:null}
 function wkLab(s,w){var n=s>=2021?18:17;return w<=n?String(w):["WC","DIV","CONF","SB"][w-n-1]||String(w)}
 function recTable(title,bands,rows,keyf,labf){
@@ -424,6 +436,9 @@ function vTracker(){
     h+='<h3>The Picks rule, graded</h3><div class="tw"><table class="mini"><thead><tr><th></th><th class="n">Bets</th><th class="n">Won</th><th class="n">Hit rate</th><th class="n">Units</th><th class="n k">Return</th><th></th></tr></thead><tbody>'+
       line("<b>Top 8</b> · "+(S.twk?"this week":S.tseason),top8(pk),"The eight likeliest Ledger picks each week")+line("Top 8 · every stored game",top8(allPk),"Both seasons together")+
       line("<b>Ledger picks</b> · "+(S.twk?"this week":S.tseason),pk,"Chance 20%+, edge 3% to 25%")+line("Ledger picks · every stored game",allPk,"Both seasons together")+
+      line("<b>Long shots</b> · top 4 a week · "+(S.twk?"this week":S.tseason),top4(pr.filter(isLs)),"Biggest edges in the tier. Experimental")+line("Long shots · top 4 a week · every stored game",top4(gradeAll(all).filter(isLs)),"Both seasons together")+
+      line("Long-shot tier · all · every stored game",gradeAll(all).filter(isLs),"Chance 10–25%, +400 to +900, positive edge")+
+      line("Avoid band · +900 to +1400 · every stored game",gradeAll(all).filter(function(b){var d=dec(b.a);return d>=10&&d<15}),"Everyone priced there, any edge")+
       line("Edge above 25%",big,"Chance 20%+. The book usually knows something")+line("Model says overpriced",no,"Chance 20%+, edge below −3%. The bets to skip")+"</tbody></table></div>";
     var byW={};pk.forEach(function(b){var w=b.r[1];(byW[w]=byW[w]||{n:0,w:0,u:0});byW[w].n++;byW[w].w+=b.r[8];byW[w].u+=b.pl});
     var ws=Object.keys(byW).map(Number).sort(function(a,b){return a-b}),run=0;
@@ -478,6 +493,7 @@ function vModel(){
    "<li><b>The zone that held up:</b> chance 20%+ with an edge of 3% to 25%. about 700 bets, about +7% per bet, positive in each third of the sample (+2%, +7%, +26%). Resampling by week puts the chance that this is truly profitable near 93%, so it is promising, not proven.</li>"+
    "<li><b>It only works with line shopping.</b> The same rule at the best of eight books: +7%. At DraftKings alone: −2%. At FanDuel alone: 0%. At the median price: +1%.</li>"+
    "<li><b>The model is better at saying no.</b> Players at 20%+ that it calls overpriced lost 12% per bet across 1,365 bets, a far firmer result than any winning rule.</li>"+
+   "<li><b>Long shots:</b> no wide-odds rule held up. Chance 10–25% at +400 to +900 with a positive edge returned about +11% over 661 bets, but narrowing the range erases it, so it runs on the Picks tab as an experiment. Prices from +900 to +1400 lost 26% per bet in every period, the clearest avoid in the data.</li>"+
    "<li><b>By position inside the rule:</b> tight ends +39% (126 bets), running backs +10% (122), wide receivers −2% (417), quarterbacks −9% (29). The tight-end number is too small a sample to act on alone.</li></ol></section>";
   h+='<section class="panel"><h2>Limits</h2><ol class="steps"><li><b>The Picks rule was chosen after looking at the results</b>, so part of its record is hindsight. Treat the first few hundred picks from here on as the real test.</li><li><b>The model sees usage, not news.</b> A new starter, a snap count or a changed role shows up only after a game is played. Large edges on players in changing roles are usually the book being right.</li><li><b>Books keep 25–45% of this market</b> on the yes side, so most players are bad bets. A short list is the expected result.</li><li><b>First-TD edges are untested.</b> No past first-TD prices are stored, and books hold far more on that market. First-TD chances are each player\'s slice of all scoring in the game ('+pct(m.fcov)+" of first TDs go to listed skill players). They run slightly low for the top options: players given 14% won 16%.</li><li>Lines are the spread and total in the schedule file, refreshed on each build. Weather is not in the model.</li></ol></section>";
   return h}
@@ -492,7 +508,7 @@ function render(keep){
   if(ae==="pq"&&$("pq")){$("pq").focus();$("pq").setSelectionRange(pos,pos)}}
 function say(t){$("refreshMsg").hidden=!t;$("refreshMsg").textContent=t||""}
 function start(d){
-  var oldL=D&&D.live;D=d;if(oldL){D.live=D.live||{};Object.keys(oldL).forEach(function(k){if(!D.live[k]&&gm(k))D.live[k]=oldL[k]})}IDX={};_rec=undefined;var w=weeks();if(S.wk==null||w.indexOf(S.wk)<0)S.wk=w[0];
+  var oldL=D&&D.live;_lrec=undefined;D=d;if(oldL){D.live=D.live||{};Object.keys(oldL).forEach(function(k){if(!D.live[k]&&gm(k))D.live[k]=oldL[k]})}IDX={};_rec=undefined;var w=weeks();if(S.wk==null||w.indexOf(S.wk)<0)S.wk=w[0];
   var b=new Date(d.built);$("fresh").textContent="Games through "+d.through+" · built "+b.toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
   render(true)}
 function post(path,body,btn,label){
