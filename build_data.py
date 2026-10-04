@@ -390,7 +390,10 @@ def make(season=None, old=None):
     # ---- upcoming games
     now = datetime.now(ET)
     today = now.strftime("%Y-%m-%d")
-    up = games[(games.season == season) & games.home_score.isna() & (games.gameday >= today)].sort_values(["gameday", "gametime"])
+    # upcoming games, plus any from the last three days whose play-by-play has not been published yet (their picks stay on the page)
+    played = set(d.game_id)
+    since = (now - timedelta(days=3)).strftime("%Y-%m-%d")
+    up = games[(games.season == season) & ~games.game_id.isin(played) & (games.gameday >= since)].sort_values(["gameday", "gametime"])
     weeks = sorted(up.week.unique())[:2]
     up = up[up.week.isin(weeks)]
     names = ros.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id", keep="last").set_index("gsis_id").full_name.to_dict()
@@ -504,6 +507,7 @@ def make(season=None, old=None):
             print(note, file=sys.stderr)
     full = remember_odds(sched, old)
     live = {u["gid"] for u in sched}
+    out["live"] = live_scores(sched)
     out["odds"] = {}
     for k, v in full.items():
         if k == "_meta" or k in live or not v.get("b"):
@@ -524,6 +528,48 @@ def make(season=None, old=None):
             out["odds"][k]["bestf"] = list(bf_.values())
     if note:
         out["odds"]["_meta"]["err"] = note[:200]
+    return out
+
+
+# ---------- live results ----------
+ESPN = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/"
+ESPN_ABBR = {"WSH": "WAS", "LAR": "LA"}
+
+
+def live_scores(sched):
+    """Touchdown scorers for listed games that have kicked off, from ESPN, so picks can be marked before the play-by-play arrives.
+    {game: {"st": "in" or "post", "td": {player: touchdowns}, "first": player}}. Empty if ESPN cannot be read."""
+    now = datetime.now(ET)
+    started = [u for u in sched if datetime.fromisoformat(u["ts"]) <= now]
+    out = {}
+    try:
+        for day in sorted({u["d"] for u in started}):
+            sb = json.loads(get(f"{ESPN}scoreboard?dates={day.replace('-', '')}", 30))
+            for e in sb.get("events") or []:
+                comp = (e.get("competitions") or [{}])[0]
+                tm = {c.get("homeAway"): ESPN_ABBR.get((c.get("team") or {}).get("abbreviation"), (c.get("team") or {}).get("abbreviation")) for c in comp.get("competitors") or []}
+                u = next((x for x in started if x["a"] == tm.get("away") and x["h"] == tm.get("home")), None)
+                state = ((e.get("status") or {}).get("type") or {}).get("state")
+                if not u or state not in ("in", "post"):
+                    continue
+                rec = {"st": state, "td": {}, "first": None}
+                try:
+                    summ = json.loads(get(f"{ESPN}summary?event={e['id']}", 30))
+                    for sp in summ.get("scoringPlays") or []:
+                        kind = ((sp.get("scoringType") or {}).get("abbreviation") or "") + " " + ((sp.get("type") or {}).get("text") or "")
+                        if "TD" not in kind and "touchdown" not in kind.lower():
+                            continue
+                        m = re.match(r"^(.*?)\s+(?:\d+\s+(?:Yd|Yard)|Fumble|Interception|Blocked|Kickoff|Punt|Defensive)", sp.get("text") or "", re.I)
+                        if not m:
+                            continue
+                        who = norm_name(m.group(1))
+                        rec["td"][who] = rec["td"].get(who, 0) + 1
+                        rec["first"] = rec["first"] or who
+                except Exception as ex:
+                    print(f"live: {u['gid']}: {ex}", file=sys.stderr)
+                out[u["gid"]] = rec
+    except Exception as ex:
+        print(f"live results unavailable: {ex}", file=sys.stderr)
     return out
 
 
@@ -582,7 +628,8 @@ def remember_odds(sched, old, force=False):
         hrs = (datetime.fromisoformat(u["ts"]) - now).total_seconds() / 3600
         rec = store.get(u["gid"]) or {}
         due = sum(1 for h in looks if hrs <= h)          # looks whose time has come
-        if 0 < hrs and ((due > rec.get("n", 0) and rec.get("tries", 0) < 8) or (force and hrs <= 72)):
+        nof = rec.get("b") and not rec.get("f") and rec.get("ftries", 0) < 3 and hrs <= looks[0]     # one catch-up for first-TD prices
+        if 0 < hrs and ((due > rec.get("n", 0) and rec.get("tries", 0) < 8) or nof or (force and hrs <= 72)):
             want.append((u, due))
     if want:
         try:
@@ -603,6 +650,8 @@ def remember_odds(sched, old, force=False):
                     rec.update({"at": now.strftime("%Y-%m-%dT%H:%M"), "b": books, "n": max(due, rec.get("n", 0))})
                     if first:
                         rec["f"] = first
+                    else:
+                        rec["ftries"] = rec.get("ftries", 0) + 1
                 else:
                     rec["tries"] = rec.get("tries", 0) + 1      # market not posted yet; try again next run
                 store[u["gid"]] = rec

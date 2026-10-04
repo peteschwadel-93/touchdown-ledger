@@ -88,7 +88,29 @@ tbody tr.det>td{background:var(--bg);white-space:normal;padding:18px}
 .rs{grid-column:2/4;font-size:12.5px;color:var(--muted)}
 .kv{display:flex;flex-wrap:wrap;gap:6px 24px;font-size:13.5px;color:var(--muted);align-items:baseline}
 .kv b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
-.empty{color:var(--muted);padding:6px 0;margin:0}section[id^="game-"]{scroll-margin-top:16px}
+.empty{color:var(--muted);padding:6px 0;margin:0}
+.pcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:14px}
+.pcard{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-width:0;position:relative}
+.pcard[data-open]{cursor:pointer}.pcard[data-open]:hover{border-color:var(--accent)}.pcard:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.pc-top{display:flex;align-items:center;gap:8px;font-size:12.5px}.pc-top>:last-child{margin-left:auto}
+.pc-rank{font:700 22px/1 var(--display);color:var(--accent);min-width:.9em}
+.pc-name{font:600 24px/1.1 var(--display);text-transform:uppercase;letter-spacing:.03em;overflow-wrap:anywhere}
+.pc-game{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13px;color:var(--muted)}.pc-game b{color:var(--soft);font-weight:600}
+.pc-nums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;border-top:1px solid var(--line);padding-top:10px}
+.pc-nums div{display:flex;flex-direction:column;gap:2px;min-width:0}.pc-nums b{font:700 24px/1 var(--display);font-variant-numeric:tabular-nums;color:var(--ink)}.pc-nums b.ev.p1{color:#9fdc58}.pc-nums b.ev.p2{color:#3ef07f}
+.pc-nums span{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pc-foot{font-size:12.5px;color:var(--muted)}
+.pcard.hit{border-color:var(--made);background:linear-gradient(180deg,var(--made-soft),var(--bg) 60%);box-shadow:0 0 0 1px var(--made),0 0 34px -12px var(--made)}
+.pcard.hit .pc-rank,.pcard.hit .pc-name{color:var(--made)}
+.pcard.first{border-color:var(--accent);background:linear-gradient(180deg,var(--accent-soft),var(--bg) 65%);box-shadow:0 0 0 2px var(--accent),0 0 44px -6px var(--accent);animation:firstglow 2.4s ease-in-out infinite}
+.pcard.first .pc-name{color:var(--accent)}
+.pcard.miss{opacity:.55}
+@keyframes firstglow{50%{box-shadow:0 0 0 2px var(--accent),0 0 70px 2px var(--accent)}}
+.tag.fst{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.tag.lv{color:var(--made);border-color:color-mix(in srgb,var(--made) 45%,transparent)}
+.ldot{width:7px;height:7px;border-radius:50%;background:var(--made);display:inline-block;margin-right:6px;vertical-align:1px;animation:lpulse 1.8s ease-in-out infinite}
+@keyframes lpulse{50%{opacity:.35}}
+@media(prefers-reduced-motion:reduce){.pcard.first,.ldot{animation:none}}section[id^="game-"]{scroll-margin-top:16px}
 .calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:18px 28px}
 .calc>div{display:flex;flex-direction:column;gap:8px;min-width:0}.calc>div.wide{grid-column:1/-1}.tag.pk{background:var(--accent);color:var(--accent-ink);border-color:transparent}.tag.hot{color:var(--miss);border-color:color-mix(in srgb,var(--miss) 45%,transparent)}
 .eq{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 14px;font-size:13.5px;color:var(--soft)}
@@ -155,7 +177,7 @@ code{font:400 12.5px var(--mono);background:var(--sunk);padding:2px 6px;border-r
 "use strict";
 var $=function(id){return document.getElementById(id)};
 var D=null,served=/^https?:$/.test(location.protocol)&&/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-var S={tab:"picks",wk:null,sort:"value",pos:"all",game:"all",book:"best",minp:0.1,priced:0,open:null,gsel:null,pseason:null,ppos:"all",pq:"",psort:[10,-1],tview:"off",tseason:null,tsort:{off:[1,-1],def:[1,-1]},twk:0,pk:{}};
+var S={tab:"picks",wk:null,sort:"value",pos:"all",game:"all",book:"best",minp:0.1,priced:0,open:null,gsel:null,pseason:null,ppos:"all",pq:"",psort:[10,-1],tview:"off",tseason:null,hs:null,hw:null,tsort:{off:[1,-1],def:[1,-1]},twk:0,pk:{}};
 function ls(k,v){try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||"null");localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
 var MAN=ls("atd-manual")||{},PASTE=ls("atd-paste")||{};
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
@@ -200,8 +222,25 @@ function vsTxt(r){var g=gm(r.g);return (g&&g.h===r.t?"vs ":"@ ")+r.o}
 function meter(p,max){return '<span class="meter"><i style="width:'+Math.min(100,p/(max||0.65)*100).toFixed(0)+'%"></i></span>'}
 function seg(id,opts,cur){return '<span class="seg" id="'+id+'">'+opts.map(function(o){return '<button data-v="'+esc(o[0])+'" aria-pressed="'+(String(o[0])===String(cur))+'">'+esc(o[1])+"</button>"}).join("")+"</span>"}
 function weeks(){var w=[];D.sched.forEach(function(g){if(w.indexOf(g.wk)<0)w.push(g.wk)});return w}
-function poolWk(wk){var rows=D.picks.filter(function(r){var g=gm(r.g);return g&&g.wk===wk}).map(calc);
-  rows.filter(function(r){return r._pick}).sort(function(a,b){return b.p-a.p}).slice(0,8).forEach(function(r){r._top=true});return rows}
+function liveRes(r){var L=(D.live||{})[r.g];if(!L)return null;var k=norm(r.n);return{td:(L.td||{})[k]||0,first:L.first===k,final:L.st==="post"}}
+function cardLive(r){var g=gm(r.g);return{live:1,key:r.g+"|"+r.id,row:r,n:r.n,t:r.t,o:r.o,pos:r.pos,p:r.p,pr:r._pr,ev:r._ev,pf:r.pf,fp:r._fp,fev:r._fev,home:g.h===r.t,when:g.t,res:liveRes(r),pick:r._pick}}
+function cardPast(r){var sp=storedPrice(r),fp=firstPrice(r),d=sp?dec(sp[0]):null,e=d?r[7]*d-1:null;
+  return{n:r[3],t:r[4],o:r[5],pos:r[6],p:r[7],pr:sp?{a:sp[0],bk:sp[1]}:null,ev:e,pf:r[10],fp:fp?{a:fp[0],bk:fp[1]}:null,fev:fp&&r[10]!=null?r[10]*dec(fp[0])-1:null,res:{td:r[9]||r[8],first:!!r[11],final:true},pick:!!(d&&r[7]>=PK.p&&e>=PK.lo&&e<=PK.hi)}}
+/* every Ledger pick of a week: games still to come (live model) plus games already in the books (graded rows) */
+function weekPicks(season,wk){var out=[],rows=[];
+  if(season===D.season){rows=D.picks.filter(function(r){var g=gm(r.g);return g&&g.wk===wk}).map(calc);rows.forEach(function(r){if(r._pick)out.push(cardLive(r))})}
+  (D.trk||[]).forEach(function(r){if(r[0]===season&&r[1]===wk&&!gm(r[2])){var c=cardPast(r);if(c.pick)out.push(c)}});
+  out.sort(function(a,b){return b.p-a.p});out.slice(0,8).forEach(function(c){c.top=true;if(c.row)c.row._top=true});
+  return{rows:rows,picks:out,top:out.slice(0,8)}}
+function poolWk(wk){return weekPicks(D.season,wk).rows}
+function plOf(c){return !c.res||!c.pr?null:c.res.td>0?dec(c.pr.a)-1:c.res.final?-1:null}
+function pcard(c,i){var r=c.res,st=r&&r.first?"first":r&&r.td>0?"hit":r&&r.final?"miss":r?"live":"";
+  var tag=r&&r.first?'<span class="tag fst">First TD'+(r.td>1?" · ×"+r.td:"")+"</span>":r&&r.td>0?'<span class="tag w">Scored'+(r.td>1?" ×"+r.td:"")+"</span>":r&&r.final?'<span class="tag l">No TD</span>':r?'<span class="tag lv"><i class="ldot"></i>Live</span>':'<span class="o">'+esc(c.when||"")+"</span>";
+  return '<article class="pcard '+st+'"'+(c.live?' data-open="'+esc(c.key)+'" data-card="1" tabindex="0"':"")+'><div class="pc-top"><span class="pc-rank">'+(i+1)+'</span><span class="tag pos">'+c.pos+"</span>"+tag+'</div><div class="pc-name">'+esc(c.n)+"</div>"+
+    '<div class="pc-game">'+lg(c.t)+"<b>"+c.t+"</b> "+(c.live?(c.home?"vs ":"@ "):"v ")+c.o+(c.row?injTag(c.row):"")+"</div>"+
+    '<div class="pc-nums"><div><b>'+pct(c.p)+"</b><span>model</span></div><div><b>"+fmtA(c.pr.a)+"</b><span>"+esc(c.pr.bk||"best")+'</span></div><div><b class="ev '+evCls(c.ev)+'">'+evTxt(c.ev)+"</b><span>edge</span></div></div>"+
+    '<div class="pc-foot">Fair '+amer(c.p)+(c.fp?" · 1st TD "+fmtA(c.fp.a)+' <span class="ev '+evCls(c.fev)+'">'+evTxt(c.fev)+"</span>":c.pf!=null?" · 1st TD fair "+amer(c.pf):"")+"</div></article>"}
+function seasonWeeks(s){var w={};(D.trk||[]).forEach(function(r){if(r[0]===s)w[r[1]]=1});if(s===D.season)weeks().forEach(function(x){w[x]=1});return Object.keys(w).map(Number).sort(function(a,b){return a-b})}
 function pool(){return poolWk(S.wk)}
 
 /* ---------- Picks ---------- */
@@ -216,31 +255,36 @@ function priceHelp(){
   h+='<li><b>Paste.</b> Open <code>https://api.the-odds-api.com/v4/sports/americanfootball_nfl/events/EVENT_ID/odds?apiKey=YOUR_KEY&amp;regions=us&amp;markets=player_anytime_td&amp;oddsFormat=american</code> in a browser tab, copy the whole response and paste it here. The game is matched from the team names.<br><textarea id="pasteBox" aria-label="Odds API response" placeholder="{&quot;id&quot;:&quot;…&quot;,&quot;home_team&quot;:&quot;…&quot;,&quot;bookmakers&quot;:[…]}"></textarea><span class="price"><button class="btn ghost" id="pasteBtn" type="button">Add pasted prices</button><span class="o" id="pasteMsg" role="status"></span></span></li>';
   h+="<li><b>By hand.</b> Open any player row and type the price you see at your book. It is kept in this browser.</li></ol></details>";return h}
 function vPicks(){
-  var rows=pool(),priced=rows.filter(function(r){return r._pr}),games=D.sched.filter(function(g){return g.wk===S.wk});
+  var ss={};(D.trk||[]).forEach(function(r){ss[r[0]]=1});ss[D.season]=1;ss=Object.keys(ss).map(Number).sort();
+  if(ss.indexOf(S.hs)<0)S.hs=D.season;
+  var wl=seasonWeeks(S.hs);if(wl.indexOf(S.hw)<0)S.hw=S.hs===D.season&&weeks().length?weeks()[0]:wl[wl.length-1];
+  var isLive=S.hs===D.season&&weeks().indexOf(S.hw)>=0;if(isLive)S.wk=S.hw;
+  var W=weekPicks(S.hs,S.hw),rows=W.rows,priced=rows.filter(function(r){return r._pr}),games=D.sched.filter(function(g){return g.wk===S.wk}),rec=pickRecord();
   var withP=games.filter(function(g){return oddsFor(g.gid).books.length}).length,meta=(D.odds||{})._meta||{};
-  var elig=priced.filter(function(r){return r.p>=S.minp});
-  var byV=elig.filter(function(r){return r._ev>0}).sort(function(a,b){return b._ev-a._ev}).slice(0,6);
-  var byK=elig.filter(function(r){return r._k>0}).sort(function(a,b){return b._k-a._k}).slice(0,6);
-  var byP=rows.slice().sort(function(a,b){return b.p-a.p}).slice(0,6);
-  var picks=priced.filter(function(r){return r._pick}).sort(function(a,b){return b.p-a.p}),rec=pickRecord();
-  var none=priced.length?"No player at "+pct(S.minp)+"+ beats his price right now. Books take 25–45% out of this market, so empty is normal.":"Shows up once prices are loaded. Until then, compare the fair price column to your book.";
-  var h='<section class="panel"><div class="phead"><h2>Week '+S.wk+" picks</h2><div class=\"filters\">"+
-    (weeks().length>1?'<label class="f">Week '+seg("seg-wk",weeks().map(function(w){return[w,"Week "+w]}),S.wk)+"</label>":"")+
-    '<label class="f">Floor '+seg("seg-minp",[[0,"Any"],[0.1,"10%+"],[0.2,"20%+"],[0.3,"30%+"]],S.minp)+"</label></div></div>";
-  h+='<p class="note">'+(withP?"<b>Prices loaded for "+withP+" of "+games.length+" games.</b> ":"<b>No sportsbook prices loaded yet.</b> The model's chance and fair price are live for every player; edge appears once a price is in. ")+
-    "Value is the expected return per $1 at the best price found. Blend is the Kelly stake. <b>Ledger picks</b> are the narrower set that has paid in the back-check: real contributors with a modest edge. The return comes from taking the best price across books, so shop every pick."+(meta.left!=null?" Odds API requests left: <b>"+meta.left+"</b>.":"")+(meta.err?" Last price pull failed: "+esc(meta.err)+".":"")+"</p>";
-  h+='<div class="rcards">'+
-    topCard("Top 8"+(picks.length>8?" of "+picks.length+" picks":""),"The eight likeliest scorers among Ledger picks (chance 20%+, edge 3% to 25% at the best price). "+(rec?"Back-check: all picks "+evTxt(rec.u/rec.n)+" per bet over "+rec.n+(rec.n8?"; top 8 a week "+evTxt(rec.u8/rec.n8)+" over "+rec.n8:"")+".":""),picks.slice(0,8),function(r){return '<span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+"</span>"},function(r){return fmtA(r._pr.a)+" "+esc(r._pr.bk)+" · model "+pct(r.p)+" · fair "+amer(r.p)},true,priced.length?"No player passes the rule right now. Check again after the next price pull.":"Shows up once prices are loaded.")+
-    topCard("Best value","Highest expected return, players at "+pct(S.minp)+"+ only. Big edges are often the book knowing more.",byV,function(r){return '<span class="ev '+evCls(r._ev)+'">'+evTxt(r._ev)+"</span>"},function(r){return fmtA(r._pr.a)+" "+esc(r._pr.bk)+" · model "+pct(r.p)+" · fair "+amer(r.p)},false,none)+
-    topCard("Best blend","Value weighted by likelihood (Kelly stake).",byK,function(r){return (r._k*100).toFixed(1)+"%"},function(r){return fmtA(r._pr.a)+" · model "+pct(r.p)+" · edge "+evTxt(r._ev)},false,none)+
-    topCard("Most likely","Highest chance to score, price ignored.",byP,function(r){return pct(r.p)},function(r){return "fair "+amer(r.p)+(r._pr?" · best "+fmtA(r._pr.a)+" · edge "+evTxt(r._ev):"")},false,"")+"</div>";
-  h+=priceHelp()+"</section>";
+  var h='<section class="panel"><div class="phead"><h2>Top 8 · Week '+wkLab(S.hs,S.hw)+(ss.length>1?" · "+S.hs:"")+'</h2><div class="filters">'+
+    (ss.length>1?'<label class="f">Season '+seg("seg-hs",ss.map(function(y){return[y,y]}),S.hs)+"</label>":"")+
+    '<label class="f" for="selHw">Week <select id="selHw">'+wl.map(function(w){return '<option value="'+w+'"'+(w===S.hw?" selected":"")+">"+wkLab(S.hs,w)+(S.hs===D.season&&weeks().indexOf(w)>=0?" · upcoming":"")+"</option>"}).join("")+"</select></label></div></div>";
+  h+='<p class="note">The eight likeliest scorers among Ledger picks: chance 20%+ with an edge of 3% to 25% at the best price across books. '+(rec?"Back-check: top 8 a week "+evTxt(rec.u8/rec.n8)+" per bet over "+rec.n8+" bets; all picks "+evTxt(rec.u/rec.n)+" over "+rec.n+". ":"")+"Cards turn green when the player scores and gold if he scores first."+
+    (isLive?(withP?" Prices in for "+withP+" of "+games.length+" games.":" <b>No prices loaded yet for this week.</b>")+(meta.left!=null?" Odds API requests left: <b>"+meta.left+"</b>.":"")+(meta.err?" Last price pull failed: "+esc(meta.err)+".":""):"")+"</p>";
+  if(W.top.length){
+    h+='<div class="pcards">'+W.top.map(pcard).join("")+"</div>";
+    var done=W.top.filter(function(c){return plOf(c)!=null}),u=0,f=0;done.forEach(function(c){u+=plOf(c);if(c.res.first)f++});
+    if(done.length)h+='<div class="kv"><span>Settled: <b>'+done.length+" of "+W.top.length+"</b></span><span>Scored: <b>"+done.filter(function(c){return c.res.td>0}).length+"</b></span><span>First TDs: <b>"+f+"</b></span><span>Units: <b>"+(u>=0?"+":"")+f2(u)+"</b></span></div>";
+  }else h+='<p class="empty">'+(isLive?(priced.length?"No player passes the rule right now. Check again after the next price pull.":"Picks appear once prices are loaded for this week."):"No stored prices for this week, so there are no picks to show.")+"</p>";
+  if(isLive)h+=priceHelp();
+  h+="</section>";
+  var rest=W.picks.filter(function(c){return !c.live});
+  if(rest.length){var all=W.picks.filter(function(c){return plOf(c)!=null}),ua=0;all.forEach(function(c){ua+=plOf(c)});
+    h+='<section class="panel"><div class="phead"><h2>'+(isLive?"Already played this week":"Every Ledger pick that week")+'</h2><span class="tag">'+all.filter(function(c){return c.res.td>0}).length+" of "+all.length+" scored · "+(ua>=0?"+":"")+f2(ua,1)+'u</span></div><div class="tw"><table><thead><tr><th>Player</th><th>Game</th><th class="n k">Model</th><th class="n">Price</th><th class="n k">Edge</th><th class="n">1st TD price</th><th class="n k">1st TD edge</th><th>Result</th><th class="n">Units</th></tr></thead><tbody>'+
+      rest.map(function(c){var pl=plOf(c);return '<tr><td><span class="tag pos">'+c.pos+'</span> <span class="pn">'+esc(c.n)+"</span>"+(c.top?' <span class="tag t8">Top 8</span>':"")+"</td><td>"+tmL(c.t)+' <span class="o">v '+c.o+'</span></td><td class="n k"><b>'+pct(c.p,1)+'</b></td><td class="n">'+fmtA(c.pr.a)+' <span class="o">'+esc(c.pr.bk||"")+'</span></td><td class="n k"><span class="ev '+evCls(c.ev)+'">'+evTxt(c.ev)+'</span></td><td class="n">'+(c.fp?fmtA(c.fp.a):"–")+'</td><td class="n k"><span class="ev '+evCls(c.fev)+'">'+evTxt(c.fev)+"</span></td><td>"+(c.res.first?'<span class="tag fst">First TD</span>':c.res.td>0?'<span class="tag w">Scored'+(c.res.td>1?" ×"+c.res.td:"")+"</span>":'<span class="tag l">No TD</span>')+'</td><td class="n">'+(pl>=0?"+":"")+f2(pl)+"</td></tr>"}).join("")+"</tbody></table></div></section>"}
+  if(!isLive)return h;
   /* board */
   var books=allBooks();
   var list=rows.filter(function(r){return (S.pos==="all"||r.pos===S.pos)&&(S.game==="all"||r.g===S.game)&&(S.priced===3?r._top:S.priced===2?r._pick:r.p>=S.minp&&(!S.priced||r._pr))});
   var key={value:function(r){return r._ev==null?-9:r._ev},blend:function(r){return r._k==null?-9:r._k},likely:function(r){return r.p}}[S.sort];
   list.sort(function(a,b){return key(b)-key(a)||b.p-a.p});
   h+='<section class="panel"><div class="phead"><h2>The board</h2><div class="filters">'+
+    '<label class="f">Floor '+seg("seg-minp",[[0,"Any"],[0.1,"10%+"],[0.2,"20%+"],[0.3,"30%+"]],S.minp)+"</label>"+
     '<label class="f">Rank by '+seg("seg-sort",[["value","Value"],["blend","Blend"],["likely","Likelihood"]],S.sort)+"</label>"+
     '<label class="f">Position '+seg("seg-pos",[["all","All"],["RB","RB"],["WR","WR"],["TE","TE"],["QB","QB"]],S.pos)+"</label>"+
     '<label class="f" for="selGame">Game <select id="selGame"><option value="all">All games</option>'+games.map(function(g){return '<option value="'+g.gid+'"'+(S.game===g.gid?" selected":"")+">"+g.a+" @ "+g.h+"</option>"}).join("")+"</select></label>"+
@@ -441,7 +485,7 @@ document.addEventListener("click",function(e){
   var t=e.target,b;
   if((b=t.closest("#tabs button"))){S.tab=b.dataset.tab;S.open=null;try{history.replaceState(null,"","#"+S.tab)}catch(x){}render();return}
   if((b=t.closest(".seg button"))){var id=b.parentNode.id,v=b.dataset.v;
-    ({"seg-wk":function(){S.wk=+v;S.game="all";S.open=null},"seg-minp":function(){S.minp=+v},"seg-sort":function(){S.sort=v},"seg-pos":function(){S.pos=v},"seg-priced":function(){S.priced=+v},"seg-ps":function(){S.pseason=v},"seg-pp":function(){S.ppos=v},"seg-tv":function(){S.tview=v},"seg-tss":function(){S.tseason=+v;S.twk=0}}[id]||function(){})();render(true);return}
+    ({"seg-wk":function(){S.wk=+v;S.game="all";S.open=null},"seg-minp":function(){S.minp=+v},"seg-sort":function(){S.sort=v},"seg-pos":function(){S.pos=v},"seg-priced":function(){S.priced=+v},"seg-ps":function(){S.pseason=v},"seg-pp":function(){S.ppos=v},"seg-tv":function(){S.tview=v},"seg-tss":function(){S.tseason=+v;S.twk=0},"seg-hs":function(){S.hs=+v;S.hw=null;S.open=null}}[id]||function(){})();render(true);return}
   if((b=t.closest("[data-jump]"))){e.preventDefault();var el=$(b.dataset.jump);if(el)el.scrollIntoView({behavior:"smooth",block:"start"});return}
   if(t.closest("[data-clear]")){var f=t.closest("form");delete MAN[f.dataset.price];ls("atd-manual",MAN);render(true);return}
   if(t.closest("#pasteBtn")){paste();return}
@@ -449,12 +493,12 @@ document.addEventListener("click",function(e){
   if((b=t.closest("th[data-ps]"))){S.psort=setSort(S.psort,+b.dataset.ps);render(true);return}
   if((b=t.closest("th[data-ts]"))){S.tsort[S.tview]=setSort(S.tsort[S.tview],+b.dataset.ts);render(true);return}
   if((b=t.closest("[data-open]"))){var id2=b.dataset.open;
-    if(b.tagName==="LI"){S.open=id2;S.game=id2.split("|")[0];S.minp=0;S.pos="all";S.priced=0;render(true);var row=document.querySelector('tr.pick.on');if(row)row.scrollIntoView({block:"center"});return}
+    if(b.dataset.card){S.open=id2;S.game=id2.split("|")[0];S.minp=0;S.pos="all";S.priced=0;render(true);var row=document.querySelector('tr.pick.on');if(row)row.scrollIntoView({block:"center"});return}
     S.open=S.open===id2?null:id2;render(true)}
 });
-document.addEventListener("keydown",function(e){if((e.key==="Enter"||e.key===" ")&&e.target.matches("tr.pick,th[tabindex]")){e.preventDefault();e.target.click()}});
+document.addEventListener("keydown",function(e){if((e.key==="Enter"||e.key===" ")&&e.target.matches("tr.pick,th[tabindex],.pcard[tabindex]")){e.preventDefault();e.target.click()}});
 document.addEventListener("change",function(e){var t=e.target;
-  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.id==="selBook"){S.book=t.value;render(true)}else if(t.id==="selTw"){S.twk=+t.value;render(true)}});
+  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.id==="selBook"){S.book=t.value;render(true)}else if(t.id==="selTw"){S.twk=+t.value;render(true)}else if(t.id==="selHw"){S.hw=+t.value;S.game="all";S.open=null;render(true)}});
 document.addEventListener("input",function(e){if(e.target.id==="pq"){S.pq=e.target.value;render(true)}});
 document.addEventListener("toggle",function(e){if(e.target.id==="how")S.howOpen=e.target.open},true);
 document.addEventListener("submit",function(e){e.preventDefault();var f=e.target;
