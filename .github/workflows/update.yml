@@ -1,0 +1,67 @@
+name: Update
+
+on:
+  schedule:
+    - cron: "7 * * * 4,5,6,0,1"   # hourly Thursday to Monday (UTC), to catch each game's price looks and results
+    - cron: "7 12 * * 2,3"        # once on Tuesday and Wednesday for new lines
+  workflow_dispatch:
+    inputs:
+      past_prices:
+        description: "Load past prices for this season's finished games (paid Odds API plan, 10 requests per game)"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: ["index.html", "build_data.py", ".github/workflows/update.yml"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: nfl_cache
+          key: nfl-cache-${{ github.run_id }}
+          restore-keys: nfl-cache-
+      - name: Build data and pull prices
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          ODDS_BACKFILL: ${{ inputs.past_prices && '1' || '' }}
+        run: python build_data.py --out data.json
+      - name: Keep the price record
+        run: |
+          if [ -f odds.json ] && [ -n "$(git status --porcelain odds.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add odds.json
+            git commit -m "Prices $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+          fi
+      - name: Assemble site
+        run: |
+          mkdir _site
+          cp index.html data.json _site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
