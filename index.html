@@ -48,7 +48,7 @@ button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-vis
 .phead{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;justify-content:space-between}
 .note{color:var(--muted);font-size:13.5px;margin:0;line-height:1.6;max-width:95ch}
 .note b{color:var(--soft);font-weight:500}
-.tw{overflow-x:auto;min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--bg);container-type:inline-size}.tw.fit{align-self:flex-start;max-width:100%;container-type:normal}tr.det .calc{position:sticky;left:18px;width:calc(100cqw - 38px)}@container (max-width:760px){tr.det .calc{grid-template-columns:minmax(0,1fr)}}
+.tw{overflow-x:auto;min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--bg);container-type:inline-size}.tw.fit{align-self:flex-start;max-width:100%;container-type:normal}tr.det .calc{position:sticky;left:18px;width:calc(100cqw - 38px)}@container (max-width:1000px){tr.det .calc{grid-template-columns:minmax(0,1fr)}}@media(max-width:1340px){.grid2.gg{grid-template-columns:minmax(0,1fr)}}
 table{border-collapse:collapse;width:100%;font-size:14.5px}
 th,td{padding:10px 14px;text-align:left;white-space:nowrap}
 th{font:500 11px/1.2 var(--body);text-transform:uppercase;letter-spacing:.11em;color:var(--muted);vertical-align:bottom;border-bottom:1px solid var(--line);padding-block:12px}
@@ -112,7 +112,7 @@ tbody tr.det>td{background:var(--bg);white-space:normal;padding:18px}
 @keyframes lpulse{50%{opacity:.35}}
 @media(prefers-reduced-motion:reduce){.pcard.first,.ldot{animation:none}}section[id^="game-"]{scroll-margin-top:16px}
 .calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:18px 28px}
-.calc>div{display:flex;flex-direction:column;gap:8px;min-width:0}.calc>div.wide{grid-column:1/-1}.notes ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:13.5px;color:var(--soft);line-height:1.55;max-width:110ch}.notes b{color:var(--ink);font-weight:500}.notes a,.note a{color:var(--accent)}.heads{display:flex;flex-direction:column;gap:8px}.tag.pk{background:var(--accent);color:var(--accent-ink);border-color:transparent}.tag.hot{color:var(--miss);border-color:color-mix(in srgb,var(--miss) 45%,transparent)}
+.calc>div{display:flex;flex-direction:column;gap:8px;min-width:0}.calc>div.wide{grid-column:1/-1}.logt{overflow-x:auto}.logt th,.logt td{padding:6px 7px;font-size:12.5px}.logt th{font-size:10px;letter-spacing:.05em}.logt td:first-child,.logt th:first-child{padding-left:10px}.logt td:last-child,.logt th:last-child{padding-right:10px}.notes li{overflow-wrap:anywhere}.notes ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:13.5px;color:var(--soft);line-height:1.55;max-width:110ch}.notes b{color:var(--ink);font-weight:500}.notes a,.note a{color:var(--accent)}.heads{display:flex;flex-direction:column;gap:8px}.tag.pk{background:var(--accent);color:var(--accent-ink);border-color:transparent}.tag.hot{color:var(--miss);border-color:color-mix(in srgb,var(--miss) 45%,transparent)}
 .eq{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 14px;font-size:13.5px;color:var(--soft)}
 .eq b{font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums;text-align:right}
 .eq .tot{border-top:1px solid var(--line);padding-top:6px;color:var(--accent)}
@@ -342,7 +342,7 @@ function detail(r){
   else h+='<p class="note">No book prices loaded for this player. Bet only at <b>'+amer(r.p)+"</b> or longer.</p>";
   if(r._pick)h+='<p class="note"><b>Ledger pick.</b> Chance 20%+ with an edge between 3% and 25% at the best price.</p>';
   if(r._ev!=null&&r._ev>PK.hi)h+='<p class="note"><b>Check the news first.</b> Edges above 25% lost money in the back-check. It usually means the book knows something the usage history does not: a role change, a returning starter, a snap limit.</p>';
-  h+="</div>"+notesBlock(r)+'<div class="wide"><h3>Recent games</h3>'+logTable(r)+'<p class="note">Weighted averages: '+f2(r.x)+" xTD, "+f2(r.td)+" TD, "+f2(r.rz,1)+" red-zone chances, "+f2(r.i5)+" carries inside the 5, "+f2(r.ez)+" end-zone targets per game.</p></div></div>";
+  h+="</div>"+notesBlock(r)+'<div><h3>Recent games</h3>'+logTable(r)+'<p class="note">Weighted averages: '+f2(r.x)+" xTD, "+f2(r.td)+" TD, "+f2(r.rz,1)+" red-zone chances, "+f2(r.i5)+" carries inside the 5, "+f2(r.ez)+" end-zone targets per game.</p></div></div>";
   return h}
 function fmtDay(d){var x=new Date(d);return isNaN(x)?"":x.toLocaleDateString([],{month:"short",day:"numeric"})}
 function notesBlock(r){
@@ -358,19 +358,19 @@ function notesBlock(r){
     var rz=last[7]+(lg_.length>1?lg_[lg_.length-2][7]:0);if(rz>=6)L.push("<b>Heavy red-zone work:</b> "+rz+" red-zone chances over the last two games.");
     var sc=lg_.filter(function(x){return x[9]>0}).length;L.push("Scored in "+sc+" of his last "+lg_.length+" games; expected TDs in that span "+f2(lg_.reduce(function(s,x){return s+x[8]},0),1)+", actual "+lg_.reduce(function(s,x){return s+x[9]},0)+".")}
   var links=r.eid?'<a href="https://www.espn.com/nfl/player/_/id/'+r.eid+'" target="_blank" rel="noopener">ESPN player page</a>':"";
-  return '<div class="wide notes"><h3>Notes</h3>'+(L.length?"<ul>"+L.map(function(x){return "<li>"+x+"</li>"}).join("")+"</ul>":"")+
+  return '<div class="notes"><h3>Notes</h3>'+(L.length?"<ul>"+L.map(function(x){return "<li>"+x+"</li>"}).join("")+"</ul>":"")+
     (r.eid?'<div class="heads" id="news-'+r.eid+'">'+headsHtml(r.eid)+"</div>":"")+(links?'<p class="note">'+links+"</p>":"")+"</div>"}
 /* latest headlines tagged to the player, fetched from ESPN when a row is opened (hosted site only) */
 var NEWS={};
 function headsHtml(eid){var n=NEWS[eid];if(n===undefined||n===null)return hosted()?'<span class="o">Loading headlines…</span>':"";if(!n||!n.length)return "";
-  return "<h3>Latest headlines</h3><ul>"+n.map(function(x){return '<li><span class="o">'+fmtDay(x.d)+"</span> "+(x.u?'<a href="'+esc(x.u)+'" target="_blank" rel="noopener">'+esc(x.h)+"</a>":esc(x.h))+"</li>"}).join("")+"</ul>"}
+  return "<h3>Headlines, last 30 days</h3><ul>"+n.map(function(x){return '<li><span class="o">'+fmtDay(x.d)+"</span> "+(x.u?'<a href="'+esc(x.u)+'" target="_blank" rel="noopener">'+esc(x.h)+"</a>":esc(x.h))+"</li>"}).join("")+"</ul>"}
 function hosted(){return /^https?:$/.test(location.protocol)&&!/claude/.test(location.hostname)}
 function loadNews(eid){if(!eid||NEWS[eid]!==undefined||!hosted())return;NEWS[eid]=null;
   fetch("https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/athletes/"+eid+"/overview").then(function(r){return r.json()}).then(function(j){
-    NEWS[eid]=((j.news||[]).slice(0,4)).map(function(x){var u=((x.links||{}).web||{}).href||"";return{h:x.headline||"",d:x.published||"",u:/^https:\/\//.test(u)?u:""}}).filter(function(x){return x.h})}).catch(function(){NEWS[eid]=[]})
+    NEWS[eid]=((j.news||[]).filter(function(x){return Date.now()-new Date(x.published||0).getTime()<30*864e5}).slice(0,4)).map(function(x){var u=((x.links||{}).web||{}).href||"";return{h:x.headline||"",d:x.published||"",u:/^https:\/\//.test(u)?u:""}}).filter(function(x){return x.h})}).catch(function(){NEWS[eid]=[]})
     .then(function(){var el=$("news-"+eid);if(el)el.innerHTML=headsHtml(eid)})}
 function logTable(r){if(!r.log||!r.log.length)return'<p class="empty">No games on record.</p>';
-  return '<div class="tw"><table class="mini"><thead><tr><th>Wk</th><th>Opp</th><th class="n">Snaps</th><th class="n">Car</th><th class="n">Tgt</th><th class="n" title="Carries inside the 5">In 5</th><th class="n" title="End-zone targets">EZ</th><th class="n" title="Red-zone carries and targets">RZ</th><th class="n">xTD</th><th class="n">TD</th></tr></thead><tbody>'+r.log.slice().reverse().map(function(l){return "<tr><td>"+l[0]+"</td><td>"+l[1]+'</td><td class="n">'+pct(l[2])+'</td><td class="n">'+l[3]+'</td><td class="n">'+l[4]+'</td><td class="n">'+l[5]+'</td><td class="n">'+l[6]+'</td><td class="n">'+l[7]+'</td><td class="n">'+f2(l[8])+'</td><td class="n">'+(l[9]?'<span class="tag w">'+l[9]+"</span>":"0")+"</td></tr>"}).join("")+"</tbody></table></div>"}
+  return '<div class="tw logt"><table class="mini"><thead><tr><th>Wk</th><th>Opp</th><th class="n">Snaps</th><th class="n">Car</th><th class="n">Tgt</th><th class="n" title="Carries inside the 5">In 5</th><th class="n" title="End-zone targets">EZ</th><th class="n" title="Red-zone carries and targets">RZ</th><th class="n">xTD</th><th class="n">TD</th></tr></thead><tbody>'+r.log.slice().reverse().map(function(l){return "<tr><td>"+l[0]+"</td><td>"+l[1]+'</td><td class="n">'+pct(l[2])+'</td><td class="n">'+l[3]+'</td><td class="n">'+l[4]+'</td><td class="n">'+l[5]+'</td><td class="n">'+l[6]+'</td><td class="n">'+l[7]+'</td><td class="n">'+f2(l[8])+'</td><td class="n">'+(l[9]?'<span class="tag w">'+l[9]+"</span>":"0")+"</td></tr>"}).join("")+"</tbody></table></div>"}
 
 /* ---------- Games ---------- */
 var GC=[["Player",function(r){return r.n},"",""],["Model",function(r){return r.p},"","n k"],["Fair",function(r){return r.p},"","n k"],["Price",function(r){return r._pr?dec(r._pr.a):null},"Best price found","n"],["Edge",function(r){return r._ev},"","n k"],
@@ -384,7 +384,7 @@ function vGames(){
   gs.forEach(function(g){var od=oddsFor(g.gid);
     h+='<section class="panel" id="game-'+g.gid+'"><div class="matchhead"><div class="side"><h3>Away · implied</h3><span class="who tml">'+lg(g.a)+g.a+'</span><span class="big">'+f2(g.ia,1)+'</span></div><div class="mid"><b>'+g.tot+"</b>total<br>"+(g.sp>0?g.h+" −"+g.sp:g.sp<0?g.a+" −"+(-g.sp):"pick ’em")+"<br>"+esc(g.t)+(g.roof?"<br>"+esc(g.roof):"")+'</div><div class="side r"><h3>Home · implied</h3><span class="who tml">'+lg(g.h)+g.h+'</span><span class="big">'+f2(g.ih,1)+"</span></div></div>";
     h+='<p class="note">'+(od.books.length?"Prices from "+od.books.length+" books, pulled "+esc((od.at||"").replace("T"," "))+" ET.":"No prices loaded for this game yet; the fair column is the price to beat.")+"</p>";
-    h+='<div class="grid2">'+[g.a,g.h].map(function(t){var opp=t===g.a?g.h:g.a,rows=all.filter(function(r){return r.g===g.gid&&r.t===t}).sort(function(a,b){if(!S.gsort)return b.p-a.p;var f=GC[S.gsort[0]][1],x=f(a),y=f(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return (typeof x==="string"?x.localeCompare(y):x-y)*S.gsort[1]}),o=T[t],d=T[opp]&&T[opp].d;
+    h+='<div class="grid2 gg">'+[g.a,g.h].map(function(t){var opp=t===g.a?g.h:g.a,rows=all.filter(function(r){return r.g===g.gid&&r.t===t}).sort(function(a,b){if(!S.gsort)return b.p-a.p;var f=GC[S.gsort[0]][1],x=f(a),y=f(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return (typeof x==="string"?x.localeCompare(y):x-y)*S.gsort[1]}),o=T[t],d=T[opp]&&T[opp].d;
       var s='<div class="gcard"><div class="phead"><h2 class="tml">'+lg(t)+t+"</h2>"+(rows[0]?'<span class="tag">'+f2(rows[0].T)+" team TDs · "+pct(rows[0].sp)+" by run</span>":"")+"</div>";
       if(o&&d)s+='<div class="kv"><span>'+t+" offence <b>"+f2(o.td)+"</b> TD/g ("+f2(o.rtd)+" rush, "+f2(o.ctd)+" rec)</span><span>"+opp+" defence allows <b>"+f2(d.td)+"</b> TD/g · RB <b>"+f2(d.rb)+"</b> · WR <b>"+f2(d.wr)+"</b> · TE <b>"+f2(d.te)+"</b> · QB <b>"+f2(d.qb)+"</b></span></div>";
       s+='<div class="tw"><table><thead><tr>'+GC.map(function(c,i){return '<th tabindex="0" data-gs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(S.gsort&&S.gsort[0]===i?' aria-sort="'+(S.gsort[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+'</tr></thead><tbody>'+rows.map(function(r){var id=r.g+"|"+r.id,on=S.open===id;
