@@ -10,7 +10,7 @@ on:
         description: "Load past prices for finished games (paid Odds API plan, 10 requests per game)"
         type: choice
         default: "no"
-        options: ["no", "this season", "this season and last season"]
+        options: ["no", "this season", "this season and last season", "this season first TD"]
   push:
     branches: [main]
     paths: ["index.html", "build_data.py", ".github/workflows/update.yml"]
@@ -46,7 +46,7 @@ jobs:
       - name: Build data and pull prices
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-          ODDS_BACKFILL: ${{ inputs.past_prices == 'this season' && '1' || inputs.past_prices == 'this season and last season' && '2' || '' }}
+          ODDS_BACKFILL: ${{ inputs.past_prices == 'this season' && '1' || inputs.past_prices == 'this season and last season' && '2' || inputs.past_prices == 'this season first TD' && '3' || '' }}
         run: python build_data.py --out data.json
       - name: Keep the price record
         run: |
@@ -61,6 +61,7 @@ jobs:
         run: |
           mkdir _site
           cp index.html data.json _site/
+          if [ -d "NFL Logos" ]; then cp -r "NFL Logos" _site/; fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
