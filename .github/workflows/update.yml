@@ -2,8 +2,11 @@ name: Update
 
 on:
   schedule:
-    - cron: "7 * * * 4,5,6,0,1"   # hourly Thursday to Monday (UTC), to catch each game's price looks and results
-    - cron: "7 12 * * 2,3"        # once on Tuesday and Wednesday for new lines
+    # every 15 minutes around games (times are UTC; ET is 4 or 5 hours behind)
+    - cron: "*/15 10-13 * * 0"          # Sunday morning: London games and the run-up to 1:00
+    - cron: "*/15 14-23 * * 0,1,4,6"    # Sunday, Monday, Thursday, Saturday: late morning to evening ET
+    - cron: "*/15 0-4 * * 0,1,2,5"      # the same nights after midnight UTC: evening games through the final whistle
+    - cron: "7 * * * *"                 # hourly the rest of the time, for lines, injuries and results
   workflow_dispatch:
     inputs:
       past_prices:
