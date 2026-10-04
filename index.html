@@ -137,7 +137,7 @@ details.how summary{cursor:pointer;font-weight:500;color:var(--soft)}
 details.how[open] summary{margin-bottom:12px}
 ol.steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;color:var(--soft);font-size:13.5px;line-height:1.6;max-width:90ch}
 code{font:400 12.5px var(--mono);background:var(--sunk);padding:2px 6px;border-radius:6px;color:var(--ink);overflow-wrap:anywhere}
-.tip{position:fixed;pointer-events:none;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12.5px;color:var(--ink);z-index:5}
+.px{border-bottom:1px dotted var(--muted);cursor:help}.pop{position:fixed;pointer-events:none;background:var(--raise);border:1px solid var(--line);border-radius:12px;padding:12px 14px;z-index:6;min-width:210px;box-shadow:0 12px 30px -12px #000;font-size:13.5px}.pop h4{margin:0 0 8px;font:600 14px var(--body);color:var(--ink);display:flex;justify-content:space-between;gap:16px;align-items:baseline}.pop h4 span{font:400 12px var(--body);color:var(--muted)}.pop div{display:flex;justify-content:space-between;gap:18px;padding:3px 0;color:var(--soft);font-variant-numeric:tabular-nums}.pop div b{font-weight:500;color:var(--ink)}.pop div.best,.pop div.best b{color:var(--made)}.pop div i{font-style:normal;color:var(--muted)}.tip{position:fixed;pointer-events:none;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12.5px;color:var(--ink);z-index:5}
 @media(max-width:900px){.grid2,.calc{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:600px){.wrap{padding-inline:16px}h1{font-size:36px}.logo{width:52px;height:52px}.topr{width:100%;justify-content:space-between}.refresh{align-items:flex-start}.fresh{text-align:left}.panel{padding:16px}.matchhead{grid-template-columns:1fr 1fr}.mid{grid-column:1/3;grid-row:2}.big{font-size:34px}}
 </style>
@@ -171,6 +171,7 @@ code{font:400 12.5px var(--mono);background:var(--sunk);padding:2px 6px;border-r
   <main id="view"><p class="empty">Loading…</p></main>
 </div>
 <div class="tip" id="tip" hidden></div>
+<div class="pop" id="pop" hidden></div>
 
 <script id="atd-data" type="application/json"></script>
 <script>
@@ -330,7 +331,7 @@ function vPicks(){
   h+='<div class="tw"><table class="board"><thead><tr>'+BC.map(function(c,i){return '<th tabindex="0" data-bs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(S.bsort&&S.bsort[0]===i?' aria-sort="'+(S.bsort[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+"</tr></thead><tbody>";
   if(!list.length)h+='<tr><td colspan="15" class="o">No players match these filters.</td></tr>';
   list.slice(0,S.game==="all"?150:999).forEach(function(r){var id=r.g+"|"+r.id,on=S.open===id;
-    h+='<tr class="pick'+(on?" on":"")+liveCls(r)+'" tabindex="0" data-open="'+esc(id)+'"><td><span class="tag pos">'+r.pos+'</span> <span class="pn">'+esc(r.n)+"</span>"+injTag(r)+pickTag(r)+'</td><td>'+tmL(r.t)+' <span class="o">'+vsTxt(r)+'</span></td><td class="n k"><b>'+pct(r.p,1)+'</b></td><td class="n k">'+amer(r.p)+'</td><td class="n">'+(r.b_pr?fmtA(r.b_pr.a)+" "+bkAb(r.b_pr.bk):'<span class="o">–</span>')+'</td><td class="n">'+pct(r.b_imp,1)+'</td><td class="n k"><span class="ev '+evCls(r.b_ev)+'">'+evTxt(r.b_ev)+'</span></td><td class="n">'+(r.b_k==null?"–":r.b_k>0?(r.b_k*100).toFixed(1)+"%":"0")+'</td><td class="n">'+pct(r.rs)+'</td><td class="n">'+pct(r.ts)+'</td><td class="n">'+f2(r.x)+'</td><td class="n">'+f2(r.T)+'</td><td class="n k">'+amer(r.pf)+'</td><td class="n">'+(r.b_fp?fmtA(r.b_fp.a)+" "+bkAb(r.b_fp.bk):'<span class="o">–</span>')+'</td><td class="n k"><span class="ev '+evCls(r.b_fev)+'">'+evTxt(r.b_fev)+"</span></td></tr>";
+    h+='<tr class="pick'+(on?" on":"")+liveCls(r)+'" tabindex="0" data-open="'+esc(id)+'"><td><span class="tag pos">'+r.pos+'</span> <span class="pn">'+esc(r.n)+"</span>"+injTag(r)+pickTag(r)+'</td><td>'+tmL(r.t)+' <span class="o">'+vsTxt(r)+'</span></td><td class="n k"><b>'+pct(r.p,1)+'</b></td><td class="n k">'+amer(r.p)+'</td><td class="n">'+(r.b_pr?'<span class="px" data-px="'+esc(id)+'|a">'+fmtA(r.b_pr.a)+"</span> "+bkAb(r.b_pr.bk):'<span class="o">–</span>')+'</td><td class="n">'+pct(r.b_imp,1)+'</td><td class="n k"><span class="ev '+evCls(r.b_ev)+'">'+evTxt(r.b_ev)+'</span></td><td class="n">'+(r.b_k==null?"–":r.b_k>0?(r.b_k*100).toFixed(1)+"%":"0")+'</td><td class="n">'+pct(r.rs)+'</td><td class="n">'+pct(r.ts)+'</td><td class="n">'+f2(r.x)+'</td><td class="n">'+f2(r.T)+'</td><td class="n k">'+amer(r.pf)+'</td><td class="n">'+(r.b_fp?'<span class="px" data-px="'+esc(id)+'|f">'+fmtA(r.b_fp.a)+"</span> "+bkAb(r.b_fp.bk):'<span class="o">–</span>')+'</td><td class="n k"><span class="ev '+evCls(r.b_fev)+'">'+evTxt(r.b_fev)+"</span></td></tr>";
     if(on)h+='<tr class="det"><td colspan="15">'+detail(r)+"</td></tr>"});
   h+="</tbody></table></div>"+(list.length>150&&S.game==="all"?'<p class="note">Showing the top 150. Narrow by game or position to see the rest.</p>':"")+"</section>";
   return h}
@@ -615,6 +616,16 @@ function paste(){
   if(!n){msg.textContent="No anytime-TD prices in that response. Check markets=player_anytime_td and oddsFormat=american.";return}
   var d=new Date();PASTE[g.gid]={at:d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-"+("0"+d.getDate()).slice(-2)+"T"+("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2),b:books};ls("atd-paste",PASTE);IDX={};S.howOpen=false;render(true)}
 var TEAMS={};[["Arizona Cardinals","ARI"],["Atlanta Falcons","ATL"],["Baltimore Ravens","BAL"],["Buffalo Bills","BUF"],["Carolina Panthers","CAR"],["Chicago Bears","CHI"],["Cincinnati Bengals","CIN"],["Cleveland Browns","CLE"],["Dallas Cowboys","DAL"],["Denver Broncos","DEN"],["Detroit Lions","DET"],["Green Bay Packers","GB"],["Houston Texans","HOU"],["Indianapolis Colts","IND"],["Jacksonville Jaguars","JAX"],["Kansas City Chiefs","KC"],["Las Vegas Raiders","LV"],["Los Angeles Chargers","LAC"],["Los Angeles Rams","LA"],["Miami Dolphins","MIA"],["Minnesota Vikings","MIN"],["New England Patriots","NE"],["New Orleans Saints","NO"],["New York Giants","NYG"],["New York Jets","NYJ"],["Philadelphia Eagles","PHI"],["Pittsburgh Steelers","PIT"],["San Francisco 49ers","SF"],["Seattle Seahawks","SEA"],["Tampa Bay Buccaneers","TB"],["Tennessee Titans","TEN"],["Washington Commanders","WAS"]].forEach(function(x){TEAMS[norm(x[0])]=x[1]});
+/* every book's price for a player, shown when the pointer rests on a board price */
+function popHtml(key){var parts=key.split("|"),kind=parts.pop(),id=parts.join("|"),r=D.picks.filter(function(x){return x.g+"|"+x.id===id})[0];if(!r)return"";
+  var od=oddsFor(r.g),by=(kind==="f"?od.byf:od.by)[norm(r.n)]||{},bks=Object.keys(by).sort(function(a,b){return dec(by[b])-dec(by[a])});if(!bks.length)return"";
+  var shown=kind==="f"?r.b_fp:r.b_pr,man=kind==="a"&&MAN[id]!=null?'<div><span>Your price <i>· shown</i></span><b>'+fmtA(MAN[id])+"</b></div>":"";
+  return "<h4>"+esc(r.n)+(kind==="f"?" · 1st TD":"")+"<span>"+bks.length+" book"+(bks.length===1?"":"s")+"</span></h4>"+man+bks.map(function(b,i){return '<div'+(i===0?' class="best"':"")+"><span>"+esc(b)+(!man&&shown&&shown.bk===b?" <i>· shown</i>":"")+"</span><b>"+fmtA(by[b])+"</b></div>"}).join("")}
+document.addEventListener("pointermove",function(e){var t=e.target.closest&&e.target.closest("[data-px]"),pop=$("pop");if(!t){if(!pop.hidden)pop.hidden=true;return}
+  if(pop.dataset.k!==t.dataset.px){var h=popHtml(t.dataset.px);if(!h){pop.hidden=true;return}pop.innerHTML=h;pop.dataset.k=t.dataset.px}
+  pop.hidden=false;var w=pop.offsetWidth,hh=pop.offsetHeight,x=e.clientX+16,y=e.clientY+16;if(x+w>window.innerWidth-8)x=e.clientX-w-16;if(y+hh>window.innerHeight-8)y=Math.max(8,e.clientY-hh-12);
+  pop.style.left=Math.max(8,x)+"px";pop.style.top=y+"px"});
+document.addEventListener("scroll",function(){$("pop").hidden=true},true);
 /* chart tooltips */
 document.addEventListener("pointermove",function(e){var t=e.target.closest&&e.target.closest("[data-tip]"),tip=$("tip");if(!t){tip.hidden=true;return}tip.textContent=t.getAttribute("data-tip");tip.hidden=false;tip.style.left=Math.min(e.clientX+14,window.innerWidth-tip.offsetWidth-8)+"px";tip.style.top=(e.clientY+14)+"px"});
 if(served){$("refreshBtn").hidden=false;$("refreshBtn").addEventListener("click",function(){say("Fetching games and prices.");post("/refresh","",this,"Refreshing…")})}
