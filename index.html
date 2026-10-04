@@ -405,15 +405,17 @@ function vGames(){
   return h}
 
 /* ---------- TD Feed ---------- */
-var FC=[["Time",function(e){return e.wc||""},"When it was scored, in your time zone","",-1],["Game",function(e){return e.g.ts+("0"+(e.per||0)).slice(-2)+(e.clk?("0000"+(3600-(parseInt(e.clk,10)*60+(+e.clk.split(":")[1]||0)))).slice(-4):"")},"Game, quarter and clock","",-1],["Player",function(e){return e.name},"","",1],["Team",function(e){return e.team},"","",1],["Type",function(e){return e.kind},"Rushing, receiving or a return","",1],
+var FC=[["Time",function(e){return e.wc||""},"When it was scored, in your time zone. ≈ means estimated from the kickoff time and game clock","",-1],["Game",function(e){return e.g.ts+("0"+(e.per||0)).slice(-2)+(e.clk?("0000"+(3600-(parseInt(e.clk,10)*60+(+e.clk.split(":")[1]||0)))).slice(-4):"")},"Game, quarter and clock","",-1],["Player",function(e){return e.name},"","",1],["Team",function(e){return e.team},"","",1],["Type",function(e){return e.kind},"Rushing, receiving or a return","",1],
   ["TD #",function(e){return e.nth},"His touchdowns so far in this game","n",-1],["Model",function(e){return e.p},"The model's chance he would score","n k",-1],["Fair",function(e){return e.p},"","n k",-1],
   ["Price",function(e){return e.pr?dec(e.pr.a):null},"Pre-kickoff price at the chosen book","n",-1],["Edge",function(e){return e.ev},"","n k",-1],["Blend",function(e){return e.k},"Kelly stake: value weighted by likelihood","n",-1],["Units",function(e){return e.units},"Profit on one unit; counted once per player","n",-1]];
+function estClock(g,per,clk){if(!per||!clk)return"";var m=/^(\d+):(\d+)/.exec(clk);if(!m)return"";var played=(Math.min(per,5)-1)*15+(15-(+m[1]+m[2]/60));
+  var t=new Date(g.ts).getTime()+(played*3.05+(per>2?13:0)+2)*60000;return new Date(t).toISOString()}     /* about three real minutes per game minute, plus halftime */
 function feedRows(){var out=[],L=D.live||{};
   D.sched.forEach(function(g){var rec=L[g.gid];if(!rec)return;var cnt={},rows=D.picks.filter(function(r){return r.g===g.gid}).map(calc),by={};rows.forEach(function(r){by[norm(r.n)]=r});
     weekPicks(D.season,g.wk);
     var evs=(rec.ev&&rec.ev.length)?rec.ev:Object.keys(rec.td||{}).map(function(k){return[k,null,"","TD",""]});
     evs.forEach(function(e,i){var k=e[0],r=k?by[k]:null,nm=k&&rec.nm&&rec.nm[k]||null;if(k)cnt[k]=(cnt[k]||0)+1;
-      out.push({g:g,k:k,row:r,name:r?r.n:nm?nm[0]:k?k.replace(/\b[a-z]/g,function(c){return c.toUpperCase()}):"Unattributed",team:r?r.t:nm?nm[1]:"",pos:r?r.pos:"",kind:e[3],per:e[1],clk:e[2],wc:e[4]||g.ts+"#"+("00"+i).slice(-3),
+      out.push({g:g,k:k,row:r,name:r?r.n:nm?nm[0]:k?k.replace(/\b[a-z]/g,function(c){return c.toUpperCase()}):"Unattributed",team:r?r.t:nm?nm[1]:"",pos:r?r.pos:"",kind:e[3],per:e[1],clk:e[2],wc:e[4]||estClock(g,e[1],e[2])||g.ts+"#"+("00"+i).slice(-3),est:!e[4],
         nth:k?cnt[k]:1,first:i===0&&!!(rec.ev&&rec.ev.length),p:r?r.p:null,pr:r?r._pr:null,ev:r?r._ev:null,k:r?r._k:null,units:r&&r._pr&&cnt[k]===1?dec(r._pr.a)-1:null,st:rec.st})})});
   return out}
 function vFeed(){
@@ -426,7 +428,7 @@ function vFeed(){
   if(!rows.length)return h+'<p class="empty">'+(liveGames.length?"No touchdowns yet.":"No games under way. Touchdowns appear here within about a minute once games kick off.")+"</p></section>";
   h+='<div class="tw"><table><thead><tr>'+FC.map(function(c,i){return '<th tabindex="0" data-fs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(so[0]===i?' aria-sort="'+(so[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+"</tr></thead><tbody>";
   rows.forEach(function(e){var when=e.per?(e.per>4?"OT":"Q"+e.per)+" "+e.clk:"";
-    var dt=/^\d{4}-\d\d-\d\dT/.test(e.wc)&&e.wc.indexOf("#")<0?new Date(e.wc):null,stamp=dt&&!isNaN(dt)?dt.toLocaleString([],{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"–";
+    var dt=/^\d{4}-\d\d-\d\dT/.test(e.wc)&&e.wc.indexOf("#")<0?new Date(e.wc):null,stamp=dt&&!isNaN(dt)?(e.est?"≈ ":"")+dt.toLocaleString([],{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"–";
     h+='<tr class="'+(e.first?"scf":"sc")+'"><td>'+esc(stamp)+'</td><td><span class="o">'+e.g.a+" @ "+e.g.h+"</span> "+esc(when)+(e.st==="post"?' <span class="o">· final</span>':"")+'</td><td>'+(e.pos?'<span class="tag pos">'+e.pos+"</span> ":"")+'<span class="pn">'+esc(e.name)+"</span>"+(e.first?' <span class="tag fst">First TD</span>':"")+(e.row?pickTag0(e.row)+(e.row._lst?' <span class="tag lsg">Long shot</span>':""):"")+"</td><td>"+(e.team?tmL(e.team):"")+"</td><td>"+e.kind+'</td><td class="n">'+e.nth+'</td><td class="n k">'+(e.p!=null?"<b>"+pct(e.p,1)+"</b>":"–")+'</td><td class="n k">'+(e.p!=null?amer(e.p):"–")+'</td><td class="n">'+(e.pr?fmtA(e.pr.a)+" "+bkAb(e.pr.bk):"–")+'</td><td class="n k"><span class="ev '+evCls(e.ev)+'">'+evTxt(e.ev)+'</span></td><td class="n">'+(e.k==null?"–":e.k>0?(e.k*100).toFixed(1)+"%":"0")+'</td><td class="n">'+(e.units!=null?"+"+f2(e.units):"–")+"</td></tr>"});
   return h+"</tbody></table></div></section>"}
 
@@ -628,8 +630,9 @@ function parseSummary(s){var td={},kinds={},feed=[],seen={};
   (((s.boxscore||{}).players)||[]).forEach(function(tm){var ab=(tm.team||{}).abbreviation||"";ab=ESPN_AB[ab]||ab;(tm.statistics||[]).forEach(function(g){var i=(g.labels||[]).indexOf("TD");if(g.name==="passing"||i<0)return;
     (g.athletes||[]).forEach(function(a){var n=parseInt((a.stats||[])[i],10)||0;if(n<=0)return;var full=(a.athlete||{}).displayName||"",k=norm(full);td[k]=(td[k]||0)+n;(kinds[k]=kinds[k]||{full:full,team:ab,g:{}}).g[g.name]=1})})});
   var plays=[],dr=s.drives||{};(dr.previous||[]).concat(dr.current&&dr.current.plays?[dr.current]:[]).forEach(function(d){plays=plays.concat(d.plays||[])});
+  var pcKey=function(x){return ((x.period||{}).number||"")+"|"+((x.clock||{}).displayValue||"")},wall={};plays.forEach(function(x){if(x.wallclock)wall[pcKey(x)]=x.wallclock});   /* the scoring summary has no time of day; the drive plays do */
   (s.scoringPlays||[]).concat(plays).forEach(function(sp){var kind=((sp.scoringType||{}).abbreviation||"")+" "+((sp.type||{}).text||"");if(kind.indexOf("TD")<0&&!/touchdown/i.test(kind))return;
-    if(sp.id&&seen[sp.id])return;if(sp.id)seen[sp.id]=1;
+    if(seen[pcKey(sp)])return;seen[pcKey(sp)]=1;
     var text=sp.text||"",m=/^(.*?)\s+\d+\s+(?:Yd|Yard)/.exec(text),who=null;
     if(m&&td[norm(m[1])])who=norm(m[1]);
     else{var ret=RETRE.test(kind),want=ret?"ret":/pass/i.test(kind)?"receiving":/rush/i.test(kind)?"rushing":null,best=null,late=want==="ret"||want==="receiving";
@@ -637,7 +640,7 @@ function parseSummary(s){var td={},kinds={},feed=[],seen={};
         if(want==="ret"){if(!Object.keys(g).some(function(x){return x!=="rushing"&&x!=="receiving"}))return}else if(want&&!g[want])return;
         var key=parts[0].charAt(0)+"."+parts[1],pos=late?text.lastIndexOf(key):text.indexOf(key);
         if(pos>=0&&(!best||(late?pos>best[0]:pos<best[0])))best=[pos,k]});who=best?best[1]:null}
-    feed.push([who,(sp.period||{}).number||null,(sp.clock||{}).displayValue||"",RETRE.test(kind)?"Return":/pass/i.test(kind)?"Rec":/rush/i.test(kind)?"Rush":"TD",sp.wallclock||""])});
+    feed.push([who,(sp.period||{}).number||null,(sp.clock||{}).displayValue||"",RETRE.test(kind)?"Return":/pass/i.test(kind)?"Rec":/rush/i.test(kind)?"Rush":"TD",sp.wallclock||wall[pcKey(sp)]||""])});
   var nm={};Object.keys(kinds).forEach(function(k){nm[k]=[kinds[k].full,kinds[k].team]});
   return{td:td,first:feed.length?feed[0][0]:null,ev:feed,nm:nm}}
 function pollLive(){

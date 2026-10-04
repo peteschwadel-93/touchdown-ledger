@@ -606,13 +606,15 @@ def parse_summary(summ):
     for d in (dr.get("previous") or []) + ([dr["current"]] if isinstance(dr.get("current"), dict) else []):
         plays += d.get("plays") or []
     feed, seen = [], set()
+    key = lambda x: f"{(x.get('period') or {}).get('number')}|{(x.get('clock') or {}).get('displayValue')}"      # one touchdown per quarter-and-clock
+    wall = {key(x): x.get("wallclock") for x in plays if x.get("wallclock")}      # the scoring summary has no time of day; the drive plays do
     for sp in (summ.get("scoringPlays") or []) + plays:
         kind = ((sp.get("scoringType") or {}).get("abbreviation") or "") + " " + ((sp.get("type") or {}).get("text") or "")
         if "TD" not in kind and "touchdown" not in kind.lower():
             continue
-        if sp.get("id") in seen:
+        if key(sp) in seen:
             continue
-        seen.add(sp.get("id"))
+        seen.add(key(sp))
         text = sp.get("text") or ""
         who = None
         m = re.match(r"^(.*?)\s+\d+\s+(?:Yd|Yard)", text)          # "Jonathan Taylor 3 Yd Run" style
@@ -636,7 +638,7 @@ def parse_summary(summ):
                     best = (pos, k)
             who = best[1] if best else None
         label = "Return" if re.search("return|interception|fumble|block|kickoff|punt", kind, re.I) else "Rec" if "pass" in kind.lower() else "Rush" if "rush" in kind.lower() else "TD"
-        feed.append([who, (sp.get("period") or {}).get("number"), (sp.get("clock") or {}).get("displayValue") or "", label, sp.get("wallclock") or ""])
+        feed.append([who, (sp.get("period") or {}).get("number"), (sp.get("clock") or {}).get("displayValue") or "", label, sp.get("wallclock") or wall.get(key(sp)) or ""])
     first = feed[0][0] if feed else None
     return td, first, feed, {k: [v["full"], v["team"]] for k, v in kinds.items()}
 
