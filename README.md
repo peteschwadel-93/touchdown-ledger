@@ -14,4 +14,4 @@ and publishes the page with GitHub Pages.
 **Setup:** add the repository secret `ODDS_API_KEY`, set Settings → Pages → Source to "GitHub Actions",
 then run Actions → Update once.
 
-**Past prices:** Actions → Update → Run workflow → tick the past-prices box (paid Odds API plan; 10 requests per game).
+**Past prices:** Actions → Update → Run workflow → choose which seasons under past prices (paid Odds API plan; 10 requests per game).

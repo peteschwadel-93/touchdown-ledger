@@ -340,9 +340,12 @@ def make(season=None, old=None):
     model = {"tfit": [r3(tfit[0]), r3(tfit[1], 4)], "lg": {k: r3(v) for k, v in lg.items()}, "hl": HL, "sm": SM, "k": K, "kd": KD,
              "rush": [[int(i), r3(r["mean"]), int(r["size"])] for i, r in RT.iterrows()],
              "tgt": [[int(i[0]), int(i[1]), r3(r["mean"]), int(r["size"])] for i, r in TT.iterrows()], "pos": {}}
+    trk = []
+    row = lambda r: [int(r.season), int(r.week), r.game_id, r.name, r.posteam, r.opp, r.pos, r3(r.p), int(r.y), int(r.tds)]
     if len(tr) > 2000 and len(te) > 1000:
         w0 = fit_logit(design(tr), tr.y.to_numpy(float))
         te = te.assign(p=predict(w0, design(te)))
+        trk += [row(r) for r in te[te.p >= 0.08].itertuples()]
         bt = {"season": int(prev), "model": scores(te.y, te.p), "base": scores(te.y, np.full(len(te), tr.y.mean())),
               "posbase": scores(te.y, te.pos.map(tr.groupby("pos").y.mean()).fillna(tr.y.mean()).to_numpy())}
         edges = [0, .03, .06, .1, .15, .2, .25, .3, .35, .4, .5, 1]
@@ -359,15 +362,13 @@ def make(season=None, old=None):
         bt["singles"] = sorted([[k, scores(z.y, (v - v.min()) / (v.max() - v.min() + 1e-9) * 0.98 + 0.01)["auc"]] for k, v in singles.items()], key=lambda x: -x[1])
         model["bt"] = bt
     # tracker: this season's games scored with a model that never saw this season
-    trk = []
     pre = s[s.season < season]
     cur = s[s.season == season]
     if len(pre) > 2000 and len(cur):
         w1 = fit_logit(design(pre), pre.y.to_numpy(float))
         cur = cur.assign(p=predict(w1, design(cur)))
         model["trk"] = scores(cur.y, cur.p)
-        for r in cur[cur.p >= 0.08].itertuples():
-            trk.append([int(r.week), r.game_id, r.name, r.posteam, r.opp, r.pos, r3(r.p), int(r.y), int(r.tds)])
+        trk += [row(r) for r in cur[cur.p >= 0.08].itertuples()]
     w = fit_logit(design(s), s.y.to_numpy(float))
     model["w"] = [r3(x, 4) for x in w]
     model["n"] = int(len(s))
@@ -489,13 +490,26 @@ def make(season=None, old=None):
            "lastwk": int(dcur.week.max()) if len(dcur) else 0, "sched": sched, "picks": picks, "players": players, "teams": tms,
            "model": model, "trk": trk}
     note = None
-    if os.environ.get("ODDS_BACKFILL", "").strip().lower() in ("1", "true"):
+    bf = os.environ.get("ODDS_BACKFILL", "").strip().lower()
+    if bf in ("1", "2", "true"):
         try:
-            backfill(season, int(os.environ.get("ODDS_LEAD", "60")), True, int(os.environ.get("ODDS_BACKFILL_MAX", "0")) or None)
+            backfill(season, int(os.environ.get("ODDS_LEAD", "60")), True, int(os.environ.get("ODDS_BACKFILL_MAX", "0")) or None, back=1 if bf == "2" else 0)
         except SystemExit as e:
             note = str(e)
             print(note, file=sys.stderr)
-    out["odds"] = remember_odds(sched, old)
+    full = remember_odds(sched, old)
+    live = {u["gid"] for u in sched}
+    out["odds"] = {}
+    for k, v in full.items():
+        if k == "_meta" or k in live or not v.get("b"):
+            out["odds"][k] = v
+            continue
+        best = {}
+        for bk, rows_ in v["b"].items():
+            for who, price in rows_:
+                if who not in best or price > best[who][1]:
+                    best[who] = [who, price, bk]
+        out["odds"][k] = {"at": v.get("at"), "best": list(best.values())}
     if note:
         out["odds"]["_meta"]["err"] = note[:200]
     return out
@@ -590,7 +604,7 @@ def remember_odds(sched, old, force=False):
     return store
 
 
-def backfill(season, lead=60, go=False, limit=None):
+def backfill(season, lead=60, go=False, limit=None, back=0):
     """Closing-ish anytime-TD prices for this season's finished games, from The Odds API's historical endpoints (paid plans only).
 
     For each finished game without stored prices it asks for the snapshot `lead` minutes before kickoff. Cost: 10 requests per
@@ -600,7 +614,7 @@ def backfill(season, lead=60, go=False, limit=None):
     if not key:
         sys.exit("No Odds API key. Put it in odds_key.txt next to this script or in the ODDS_API_KEY environment variable.")
     g = pd.read_csv(cached("games.csv", GAMES, True))
-    g = g[(g.season == season) & g.home_score.notna()].sort_values(["gameday", "gametime"])
+    g = g[g.season.isin(range(season - back, season + 1)) & g.home_score.notna()].sort_values(["gameday", "gametime"], ascending=False)
     try:
         store = json.load(open(ODDS, encoding="utf-8"))
     except Exception:
@@ -613,7 +627,7 @@ def backfill(season, lead=60, go=False, limit=None):
         ko = datetime.strptime(f"{r.gameday} {r.gametime}", "%Y-%m-%d %H:%M").replace(tzinfo=ET)
         slots.setdefault(ko - timedelta(minutes=lead), []).append(r)
     cost = 10 * len(todo) + len(slots)
-    print(f"{len(g)} finished {season} games, {len(g) - len(todo)} already have prices. To fetch: {len(todo)} games in {len(slots)} kickoff slots.")
+    print(f"{len(g)} finished games ({season - back}-{season}), {len(g) - len(todo)} already have prices. To fetch: {len(todo)} games in {len(slots)} kickoff slots.")
     print(f"Estimated cost: about {cost} requests (10 per game + 1 per slot).")
     if not todo:
         return
@@ -658,7 +672,7 @@ def backfill(season, lead=60, go=False, limit=None):
                 with open(ODDS, "w", encoding="utf-8") as f:      # save as we go, so a stop loses nothing
                     json.dump(store, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
             print(f"  {r.game_id}: {len(books)} books" + (f"  ({left} requests left)" if left else ""), flush=True)
-            if left is not None and float(left) < 15:
+            if left is not None and float(left) < 50:
                 print("Request allowance nearly used; stopping. Run again later to continue where this left off.")
                 return
             time.sleep(0.3)
@@ -864,6 +878,7 @@ def main():
     ap.add_argument("--yes", action="store_true", help="with --backfill: actually spend the requests")
     ap.add_argument("--lead", type=int, default=60, help="with --backfill: minutes before kickoff to take the prices from")
     ap.add_argument("--limit", type=int, help="with --backfill: only the first N games (to test cheaply)")
+    ap.add_argument("--last-season", action="store_true", help="with --backfill: also last season's games")
     a = ap.parse_args()
     if a.install:
         return install(a)
@@ -873,7 +888,7 @@ def main():
         sys.exit("pandas is missing. Run:  python3 build_data.py --install")
     if a.backfill:
         os.chdir(os.path.dirname(os.path.abspath(__file__)))
-        return backfill(a.season, a.lead, a.yes, a.limit)
+        return backfill(a.season, a.lead, a.yes, a.limit, back=1 if a.last_season else 0)
     if a.serve:
         return serve(a)
     try:

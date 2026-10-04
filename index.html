@@ -43,7 +43,7 @@ select,input[type=search],input[type=text],input[type=password],textarea{font:50
 textarea{font:400 12px/1.4 var(--mono);width:100%;min-height:90px;resize:vertical}
 button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible,tr[tabindex]:focus-visible,th[tabindex]:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px 24px;display:flex;flex-direction:column;gap:14px;min-width:0}
-.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.grid2>*{min-width:0}
 .grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:16px}
 .phead{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;justify-content:space-between}
 .note{color:var(--muted);font-size:13.5px;margin:0;line-height:1.6;max-width:95ch}
@@ -116,7 +116,7 @@ details.how[open] summary{margin-bottom:12px}
 ol.steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;color:var(--soft);font-size:13.5px;line-height:1.6;max-width:90ch}
 code{font:400 12.5px var(--mono);background:var(--sunk);padding:2px 6px;border-radius:6px;color:var(--ink);overflow-wrap:anywhere}
 .tip{position:fixed;pointer-events:none;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12.5px;color:var(--ink);z-index:5}
-@media(max-width:900px){.grid2{grid-template-columns:1fr}}
+@media(max-width:900px){.grid2{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:600px){.wrap{padding-inline:16px}h1{font-size:36px}.logo{width:52px;height:52px}.topr{width:100%;justify-content:space-between}.refresh{align-items:flex-start}.fresh{text-align:left}.panel{padding:16px}.matchhead{grid-template-columns:1fr 1fr}.mid{grid-column:1/3;grid-row:2}.big{font-size:34px}}
 </style>
 
@@ -155,7 +155,7 @@ code{font:400 12.5px var(--mono);background:var(--sunk);padding:2px 6px;border-r
 "use strict";
 var $=function(id){return document.getElementById(id)};
 var D=null,served=/^https?:$/.test(location.protocol)&&/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-var S={tab:"picks",wk:null,sort:"value",pos:"all",game:"all",book:"best",minp:0.1,priced:0,open:null,gsel:null,pseason:null,ppos:"all",pq:"",psort:[10,-1],tview:"off",tsort:{off:[1,-1],def:[1,-1]},twk:0,pk:{}};
+var S={tab:"picks",wk:null,sort:"value",pos:"all",game:"all",book:"best",minp:0.1,priced:0,open:null,gsel:null,pseason:null,ppos:"all",pq:"",psort:[10,-1],tview:"off",tseason:null,tsort:{off:[1,-1],def:[1,-1]},twk:0,pk:{}};
 function ls(k,v){try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||"null");localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
 var MAN=ls("atd-manual")||{},PASTE=ls("atd-paste")||{};
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
@@ -309,21 +309,41 @@ function vTeams(){
   return h+"</tbody></table></div></section>"}
 
 /* ---------- Tracker ---------- */
+/* row: [season, week, game, player, team, opp, pos, model chance, scored 0/1, TDs] */
+function storedPrice(r){var o=(D.odds||{})[r[2]];if(!o)return null;var k=norm(r[3]),best=null;
+  if(!o._ix){o._ix={};(o.best||[]).forEach(function(x){o._ix[norm(x[0])]=[x[1],x[2]]});
+    if(o.b)Object.keys(o.b).forEach(function(bk){o.b[bk].forEach(function(x){var n=norm(x[0]);if(!o._ix[n]||dec(x[1])>dec(o._ix[n][0]))o._ix[n]=[x[1],bk]})})}
+  return o._ix[k]||null}
+function wkLab(s,w){var n=s>=2021?18:17;return w<=n?String(w):["WC","DIV","CONF","SB"][w-n-1]||String(w)}
+function recTable(title,bands,rows,keyf,labf){
+  return '<div><h3>'+title+'</h3><div class="tw"><table class="mini"><thead><tr><th></th><th class="n">Bets</th><th class="n">Won</th><th class="n">Hit rate</th><th class="n" title="Average model chance">Model</th><th class="n" title="Units won or lost, one unit per bet">Units</th><th class="n k" title="Return per unit staked">Return</th></tr></thead><tbody>'+bands.map(function(b){var x=rows.filter(function(r){var v=keyf(r);return v>=b[0]&&v<b[1]}),w=0,u=0,e=0;x.forEach(function(r){w+=r.r[8];u+=r.pl;e+=r.r[7]});
+    return "<tr><td>"+labf(b)+'</td><td class="n">'+x.length+'</td><td class="n">'+w+'</td><td class="n">'+(x.length?pct(w/x.length):"–")+'</td><td class="n">'+(x.length?pct(e/x.length):"–")+'</td><td class="n">'+(x.length?(u>=0?"+":"")+f2(u,1):"–")+'</td><td class="n k"><span class="ev '+(x.length?evCls(u/x.length):"")+'">'+(x.length?evTxt(u/x.length):"–")+"</span></td></tr>"}).join("")+"</tbody></table></div></div>"}
 function vTracker(){
   var all=D.trk||[];if(!all.length)return'<section class="panel"><h2>Tracker</h2><p class="empty">Fills in after the first games of the season are played.</p></section>';
-  var wks=[];all.forEach(function(r){if(wks.indexOf(r[0])<0)wks.push(r[0])});wks.sort(function(a,b){return a-b});
-  var rows=all.filter(function(r){return !S.twk||r[0]===S.twk});
+  var ss=[];all.forEach(function(r){if(ss.indexOf(r[0])<0)ss.push(r[0])});ss.sort();
+  if(ss.indexOf(S.tseason)<0)S.tseason=ss[ss.length-1];
+  var sea=all.filter(function(r){return r[0]===S.tseason}),wks=[];sea.forEach(function(r){if(wks.indexOf(r[1])<0)wks.push(r[1])});wks.sort(function(a,b){return a-b});
+  if(S.twk&&wks.indexOf(S.twk)<0)S.twk=0;
+  var rows=sea.filter(function(r){return !S.twk||r[1]===S.twk});
   var bands=[[0.4,1,"40%+"],[0.3,0.4,"30–40%"],[0.2,0.3,"20–30%"],[0.08,0.2,"8–20%"]];
-  var h='<section class="panel"><div class="phead"><h2>Tracker · '+D.season+'</h2><label class="f">Week '+seg("seg-tw",[[0,"All"]].concat(wks.map(function(w){return[w,w]})),S.twk)+"</label></div>";
-  h+='<p class="note">Every '+D.season+" game scored by a model fitted only on earlier seasons, using only what was known before kickoff. This grades the chances themselves. Where a stored price exists for a game, value picks are graded at that price below.</p>";
-  h+='<div class="tw" style="align-self:flex-start;max-width:100%"><table><thead><tr><th>Model said</th><th class="n">Players</th><th class="n">Expected to score</th><th class="n">Scored</th><th class="n">Rate</th><th class="n">Model avg</th></tr></thead><tbody>'+bands.map(function(b){var x=rows.filter(function(r){return r[6]>=b[0]&&r[6]<b[1]}),e=0,s=0;x.forEach(function(r){e+=r[6];s+=r[7]});
+  var h='<section class="panel"><div class="phead"><h2>Back-check · '+S.tseason+'</h2><div class="filters">'+(ss.length>1?'<label class="f">Season '+seg("seg-tss",ss.map(function(y){return[y,y]}),S.tseason)+"</label>":"")+'<label class="f" for="selTw">Week <select id="selTw"><option value="0">All weeks</option>'+wks.map(function(w){return '<option value="'+w+'"'+(S.twk===w?" selected":"")+">"+wkLab(S.tseason,w)+"</option>"}).join("")+"</select></label></div></div>";
+  h+='<p class="note">Every '+S.tseason+" game scored by a model fitted only on earlier seasons, using only what was known before kickoff. The first table grades the chances themselves. The tables after it grade bets at the stored pre-kickoff price, best book, one unit each.</p>";
+  h+='<div class="tw" style="align-self:flex-start;max-width:100%"><table><thead><tr><th>Model said</th><th class="n">Players</th><th class="n">Expected to score</th><th class="n">Scored</th><th class="n">Rate</th><th class="n">Model avg</th></tr></thead><tbody>'+bands.map(function(b){var x=rows.filter(function(r){return r[7]>=b[0]&&r[7]<b[1]}),e=0,s=0;x.forEach(function(r){e+=r[7];s+=r[8]});
     return "<tr><td>"+b[2]+'</td><td class="n">'+x.length+'</td><td class="n">'+f2(e,1)+'</td><td class="n">'+s+'</td><td class="n k"><b>'+(x.length?pct(s/x.length):"–")+'</b></td><td class="n">'+(x.length?pct(e/x.length):"–")+"</td></tr>"}).join("")+"</tbody></table></div>";
-  /* value grading where prices were stored */
-  var bets=[];rows.forEach(function(r){var o=(D.odds||{})[r[1]];if(!o||!o.b)return;var best=null,k=norm(r[2]);Object.keys(o.b).forEach(function(bk){o.b[bk].forEach(function(x){if(norm(x[0])===k&&(!best||dec(x[1])>dec(best)))best=x[1]})});if(best==null)return;var e=r[6]*dec(best)-1;if(e>0.03)bets.push({r:r,a:best,e:e,pl:r[7]?dec(best)-1:-1})});
-  if(bets.length){var pl=0;bets.forEach(function(b){pl+=b.pl});h+='<div class="kv"><span>Value picks graded (edge above 3% at the stored price): <b>'+bets.length+"</b></span><span>Won <b>"+bets.filter(function(b){return b.r[7]}).length+"</b></span><span>Return on 1 unit each: <b>"+(pl>=0?"+":"")+f2(pl)+"u</b> ("+(pl/bets.length*100).toFixed(0)+"%)</span></div>"}
-  else h+='<p class="note">No stored prices for these games yet, so there is no value record to grade. Prices are kept from the day the site starts fetching them. Earlier games this season can be loaded once from Actions → Update → Run workflow with the past-prices box ticked.</p>';
-  var top=rows.slice().sort(function(a,b){return b[0]-a[0]||b[6]-a[6]}).filter(function(r){return r[6]>=0.3});
-  h+='<h3>Players the model had at 30% or better</h3><div class="tw"><table><thead><tr><th>Wk</th><th>Player</th><th>Game</th><th class="n">Model</th><th class="n">Fair</th><th>Result</th></tr></thead><tbody>'+top.slice(0,200).map(function(r){return "<tr><td>"+r[0]+'</td><td><span class="tag pos">'+r[5]+'</span> <span class="pn">'+esc(r[2])+'</span></td><td><span class="tm">'+r[3]+'</span> <span class="o">v '+r[4]+'</span></td><td class="n">'+pct(r[6],1)+'</td><td class="n">'+amer(r[6])+"</td><td>"+(r[7]?'<span class="tag w">Scored'+(r[8]>1?" ×"+r[8]:"")+"</span>":'<span class="tag l">No TD</span>')+"</td></tr>"}).join("")+"</tbody></table></div></section>";
+  var pr=[],gset={};rows.forEach(function(r){var sp=storedPrice(r);if(!sp)return;var d=dec(sp[0]);gset[r[2]]=1;pr.push({r:r,a:sp[0],bk:sp[1],e:r[7]*d-1,k:(r[7]*d-1)/(d-1),pl:r[8]?d-1:-1})});
+  if(pr.length){
+    var gN=Object.keys(gset).length,tot=0,val=pr.filter(function(b){return b.e>=0.03});val.forEach(function(b){tot+=b.pl});
+    h+='<div class="kv"><span>Games with stored prices: <b>'+gN+"</b></span><span>Priced players: <b>"+pr.length+"</b></span><span>Value picks (edge 3%+): <b>"+val.length+"</b>, won <b>"+val.filter(function(b){return b.r[8]}).length+"</b>, <b>"+(tot>=0?"+":"")+f2(tot,1)+"u</b>"+(val.length?" ("+evTxt(tot/val.length)+" per bet)":"")+"</span></div>";
+    h+='<div class="grid2">'+recTable("By edge at the stored price",[[0.5,99],[0.25,0.5],[0.1,0.25],[0.03,0.1],[-0.03,0.03],[-0.15,-0.03],[-9,-0.15]],pr,function(b){return b.e},function(b){return b[0]<-1?"Worse than −15%":b[1]>9?"+50% and up":(b[0]>=0?"+":"")+Math.round(b[0]*100)+"% to "+(b[1]>0?"+":"")+Math.round(b[1]*100)+"%"})+
+      recTable("Value picks by model chance",[[0.4,1],[0.3,0.4],[0.2,0.3],[0.1,0.2],[0.08,0.1]],val,function(b){return b.r[7]},function(b){return Math.round(b[0]*100)+"–"+Math.round(b[1]*100)+"%"})+"</div>"+
+      '<div class="grid2">'+recTable("Value picks by position",[["RB"],["WR"],["TE"],["QB"]].map(function(x,i){return[i,i+1,x[0]]}),val,function(b){return["RB","WR","TE","QB"].indexOf(b.r[6])},function(b){return b[2]})+
+      recTable("Value picks by price",[[-9999,100],[100,200],[200,400],[400,800],[800,99999]],val,function(b){return b.a},function(b){return b[0]<0?"Odds-on":b[1]>9999?"+800 and longer":"+"+b[0]+" to +"+b[1]})+"</div>";
+    h+='<p class="note">Look for rows that stay green as games pile up; that is where a betting rule comes from. A row needs a few hundred bets before its return means much. The best price across books flatters the result a little if you only bet at one book.</p>';
+    var lst=val.slice().sort(function(a,b){return b.r[1]-a.r[1]||b.e-a.e});
+    h+='<h3>Value picks, newest first</h3><div class="tw"><table><thead><tr><th>Wk</th><th>Player</th><th>Game</th><th class="n">Model</th><th class="n">Price</th><th class="n">Edge</th><th>Result</th><th class="n">Units</th></tr></thead><tbody>'+lst.slice(0,300).map(function(b){var r=b.r;return "<tr><td>"+wkLab(r[0],r[1])+'</td><td><span class="tag pos">'+r[6]+'</span> <span class="pn">'+esc(r[3])+'</span></td><td><span class="tm">'+r[4]+'</span> <span class="o">v '+r[5]+'</span></td><td class="n">'+pct(r[7],1)+'</td><td class="n">'+fmtA(b.a)+' <span class="o">'+esc(b.bk||"")+'</span></td><td class="n"><span class="ev '+evCls(b.e)+'">'+evTxt(b.e)+"</span></td><td>"+(r[8]?'<span class="tag w">Scored'+(r[9]>1?" ×"+r[9]:"")+"</span>":'<span class="tag l">No TD</span>')+'</td><td class="n">'+(b.pl>=0?"+":"")+f2(b.pl)+"</td></tr>"}).join("")+"</tbody></table></div>"+(lst.length>300?'<p class="note">Showing 300 of '+lst.length+". Pick a week to see the rest.</p>":"")}
+  else h+='<p class="note"><b>No stored prices for '+(S.twk?"this week":S.tseason)+" yet.</b> Load them once from Actions → Update → Run workflow, choosing which seasons under past prices.</p>";
+  var top=rows.slice().sort(function(a,b){return b[1]-a[1]||b[7]-a[7]}).filter(function(r){return r[7]>=0.3});
+  h+='<h3>Players the model had at 30% or better</h3><div class="tw"><table><thead><tr><th>Wk</th><th>Player</th><th>Game</th><th class="n">Model</th><th class="n">Fair</th><th class="n">Stored price</th><th>Result</th></tr></thead><tbody>'+top.slice(0,200).map(function(r){var sp=storedPrice(r);return "<tr><td>"+wkLab(r[0],r[1])+'</td><td><span class="tag pos">'+r[6]+'</span> <span class="pn">'+esc(r[3])+'</span></td><td><span class="tm">'+r[4]+'</span> <span class="o">v '+r[5]+'</span></td><td class="n">'+pct(r[7],1)+'</td><td class="n">'+amer(r[7])+'</td><td class="n">'+(sp?fmtA(sp[0]):"–")+"</td><td>"+(r[8]?'<span class="tag w">Scored'+(r[9]>1?" ×"+r[9]:"")+"</span>":'<span class="tag l">No TD</span>')+"</td></tr>"}).join("")+"</tbody></table></div>"+(top.length>200?'<p class="note">Showing 200 of '+top.length+". Pick a week to see the rest.</p>":"")+"</section>";
   return h}
 
 /* ---------- Model ---------- */
@@ -352,7 +372,7 @@ function vModel(){
   h+='<div class="grid2"><section class="panel"><h2>Carry value by yard line</h2><p class="note">Share of carries from each spot that score. This is the weight every carry gets.</p>'+bars(m.rush.map(function(r){var lab={13:"11–15",18:"16–20",25:"21–30",40:"31–50",75:"51+"}[r[0]]||String(r[0]);return[lab+" yd",r[1]]}),function(v){return pct(v,1)},mxr)+"</section>";
   var tl={3:"1–5",8:"6–10",15:"11–20",30:"21–40",70:"41+"};
   h+='<section class="panel"><h2>Target value by yard line</h2><p class="note">Targets thrown into the end zone score far more often than targets short of it from the same spot.</p><h3>Thrown into the end zone</h3>'+bars(m.tgt.filter(function(r){return r[0]===1}).map(function(r){return[tl[r[1]]+" yd",r[2]]}),function(v){return pct(v,1)},mxr)+"<h3>Short of the end zone</h3>"+bars(m.tgt.filter(function(r){return r[0]===0}).map(function(r){return[tl[r[1]]+" yd",r[2]]}),function(v){return pct(v,1)},mxr)+"</section></div>";
-  h+='<section class="panel"><h2>Limits</h2><ol class="steps"><li><b>Value has no backtest.</b> Historical anytime-TD prices were not available, so only the chances are proven. The Tracker grades value from the day prices start being stored.</li><li><b>The model sees usage, not news.</b> A new starter, a snap count or a changed role shows up only after a game is played. Large edges on players in changing roles are usually the book being right.</li><li><b>Books keep 25–45% of this market</b> on the yes side, so most players are bad bets. A short list is the expected result.</li><li><b>First-TD prices</b> are each player\'s slice of all scoring in the game ('+pct(m.fcov)+" of first TDs go to listed skill players). They run slightly low for the top options: players given 14% won 16%.</li><li>Lines are the spread and total in the schedule file, refreshed on each build. Weather is not in the model.</li></ol></section>";
+  h+='<section class="panel"><h2>Limits</h2><ol class="steps"><li><b>Value is only as proven as the Tracker shows.</b> The chances are tested on a full unseen season. Whether the edges make money depends on stored prices, graded on the Tracker tab; trust a row there only after a few hundred bets.</li><li><b>The model sees usage, not news.</b> A new starter, a snap count or a changed role shows up only after a game is played. Large edges on players in changing roles are usually the book being right.</li><li><b>Books keep 25–45% of this market</b> on the yes side, so most players are bad bets. A short list is the expected result.</li><li><b>First-TD prices</b> are each player\'s slice of all scoring in the game ('+pct(m.fcov)+" of first TDs go to listed skill players). They run slightly low for the top options: players given 14% won 16%.</li><li>Lines are the spread and total in the schedule file, refreshed on each build. Weather is not in the model.</li></ol></section>";
   return h}
 
 /* ---------- shell ---------- */
@@ -377,7 +397,7 @@ document.addEventListener("click",function(e){
   var t=e.target,b;
   if((b=t.closest("#tabs button"))){S.tab=b.dataset.tab;S.open=null;try{history.replaceState(null,"","#"+S.tab)}catch(x){}render();return}
   if((b=t.closest(".seg button"))){var id=b.parentNode.id,v=b.dataset.v;
-    ({"seg-wk":function(){S.wk=+v;S.game="all";S.open=null},"seg-minp":function(){S.minp=+v},"seg-sort":function(){S.sort=v},"seg-pos":function(){S.pos=v},"seg-priced":function(){S.priced=+v},"seg-ps":function(){S.pseason=v},"seg-pp":function(){S.ppos=v},"seg-tv":function(){S.tview=v},"seg-tw":function(){S.twk=+v}}[id]||function(){})();render(true);return}
+    ({"seg-wk":function(){S.wk=+v;S.game="all";S.open=null},"seg-minp":function(){S.minp=+v},"seg-sort":function(){S.sort=v},"seg-pos":function(){S.pos=v},"seg-priced":function(){S.priced=+v},"seg-ps":function(){S.pseason=v},"seg-pp":function(){S.ppos=v},"seg-tv":function(){S.tview=v},"seg-tss":function(){S.tseason=+v;S.twk=0}}[id]||function(){})();render(true);return}
   if(t.closest("[data-clear]")){var f=t.closest("form");delete MAN[f.dataset.price];ls("atd-manual",MAN);render(true);return}
   if(t.closest("#pasteBtn")){paste();return}
   if(t.closest("form,input,textarea,select,details.how,.det"))return;
@@ -389,7 +409,7 @@ document.addEventListener("click",function(e){
 });
 document.addEventListener("keydown",function(e){if((e.key==="Enter"||e.key===" ")&&e.target.matches("tr.pick,th[tabindex]")){e.preventDefault();e.target.click()}});
 document.addEventListener("change",function(e){var t=e.target;
-  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.id==="selBook"){S.book=t.value;render(true)}else if(t.id==="selG"){S.gsel=t.value;S.open=null;render(true)}});
+  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.id==="selBook"){S.book=t.value;render(true)}else if(t.id==="selG"){S.gsel=t.value;S.open=null;render(true)}else if(t.id==="selTw"){S.twk=+t.value;render(true)}});
 document.addEventListener("input",function(e){if(e.target.id==="pq"){S.pq=e.target.value;render(true)}});
 document.addEventListener("toggle",function(e){if(e.target.id==="how")S.howOpen=e.target.open},true);
 document.addEventListener("submit",function(e){e.preventDefault();var f=e.target;
