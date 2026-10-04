@@ -533,7 +533,10 @@ def make(season=None, old=None):
     for row_ in trk:                      # this season's finished games: grade the chances the page showed at kickoff
         lk = (locks.get(row_[2]) or {}).get("lock") if row_[0] == season else None
         if lk and norm_name(row_[3]) in lk:
-            row_[7], row_[10] = lk[norm_name(row_[3])]
+            v = lk[norm_name(row_[3])]
+            row_[7], row_[10] = v[0], v[1]
+            if len(v) > 3:              # on the Top 8 / long-shot list at kickoff (1) or not (0)
+                row_ += [v[2], v[3]]
     out["live"] = live_scores(sched)
     out["notes"] = espn_notes({norm_name(x["n"]) for x in out["picks"]})
     out["odds"] = {}
@@ -560,6 +563,10 @@ def make(season=None, old=None):
 
 
 # ---------- kickoff locks ----------
+def american(a):
+    return 1 + a / 100 if a > 0 else 1 + 100 / -a
+
+
 def apply_locks(sched, picks, now=None):
     """Freeze each game's numbers at kickoff. In the two hours before a game its rows are saved (the last save wins); once it has
     kicked off the saved rows are shown instead of fresh ones, so picks do not move during the game. The saved chances are kept
@@ -573,14 +580,43 @@ def apply_locks(sched, picks, now=None):
     for r in picks:
         by.setdefault(r["g"], []).append(r)
     live = {u["gid"] for u in sched}
+    hours = {u["gid"]: (datetime.fromisoformat(u["ts"]) - now).total_seconds() / 3600 for u in sched}
+    # who is on the Top 8 and long-shot lists right now, with every game already under way held as it stood at its kickoff
+    member = {}
+    for wk in {u["wk"] for u in sched}:
+        cand = []
+        for u in sched:
+            if u["wk"] != wk:
+                continue
+            rec = store.get(u["gid"]) or {}
+            started = hours[u["gid"]] <= 0 and rec.get("lockrows")
+            best = {}
+            for rows_ in (rec.get("b") or {}).values():
+                for x in rows_:
+                    k = norm_name(x[0])
+                    if isinstance(x[1], (int, float)) and x[1] and (k not in best or american(x[1]) > best[k]):
+                        best[k] = american(x[1])
+            for r in (rec["lockrows"] if started else by.get(u["gid"], [])):
+                d = best.get(norm_name(r["n"]))
+                ev = r["p"] * d - 1 if d else None
+                pick = bool(d and r["p"] >= 0.2 and 0.03 <= ev <= 0.25)
+                long_ = bool(d and not pick and 0.10 <= r["p"] < 0.25 and 5 <= d < 10 and ev > 0)
+                cand.append({"key": (u["gid"], r["id"]), "p": r["p"], "ev": ev, "pick": pick, "long": long_,
+                             "t8": r.get("t8") if started else None, "l4": r.get("l4") if started else None})
+        for flag, kind, n, rank in (("t8", "pick", 8, "p"), ("l4", "long", 4, "ev")):
+            held = [c for c in cand if c[flag] == 1]
+            free = sorted((c for c in cand if c[flag] is None and c[kind]), key=lambda c: -c[rank])[:max(0, n - len(held))]
+            for c in held + free:
+                member.setdefault(c["key"], {})[flag] = 1
     out = []
     for u in sched:
-        hrs = (datetime.fromisoformat(u["ts"]) - now).total_seconds() / 3600
+        hrs = hours[u["gid"]]
         rows = by.get(u["gid"], [])
         rec = store.get(u["gid"]) or {}
         if 0 < hrs <= 2 and rows:
-            rec["lockrows"] = rows
-            rec["lock"] = {norm_name(r["n"]): [r["p"], r["pf"]] for r in rows}
+            flags = lambda r, f: int((member.get((u["gid"], r["id"])) or {}).get(f, 0))
+            rec["lockrows"] = [dict(r, t8=flags(r, "t8"), l4=flags(r, "l4")) for r in rows]
+            rec["lock"] = {norm_name(r["n"]): [r["p"], r["pf"], flags(r, "t8"), flags(r, "l4")] for r in rows}
             store[u["gid"]] = rec
             u["lk"] = 1          # saved: the page can say "frozen" the moment the game kicks off
         elif hrs <= 0 and rec.get("lockrows"):
