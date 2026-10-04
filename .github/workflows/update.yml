@@ -7,9 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       past_prices:
-        description: "Load past prices for this season's finished games (paid Odds API plan, 10 requests per game)"
-        type: boolean
-        default: false
+        description: "Load past prices for finished games (paid Odds API plan, 10 requests per game)"
+        type: choice
+        default: "no"
+        options: ["no", "this season", "this season and last season"]
   push:
     branches: [main]
     paths: ["index.html", "build_data.py", ".github/workflows/update.yml"]
@@ -26,6 +27,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -44,7 +46,7 @@ jobs:
       - name: Build data and pull prices
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-          ODDS_BACKFILL: ${{ inputs.past_prices && '1' || '' }}
+          ODDS_BACKFILL: ${{ inputs.past_prices == 'this season' && '1' || inputs.past_prices == 'this season and last season' && '2' || '' }}
         run: python build_data.py --out data.json
       - name: Keep the price record
         run: |
