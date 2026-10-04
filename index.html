@@ -88,7 +88,7 @@ tbody tr.det>td{background:var(--bg);white-space:normal;padding:18px}
 .rs{grid-column:2/4;font-size:12.5px;color:var(--muted)}
 .kv{display:flex;flex-wrap:wrap;gap:6px 24px;font-size:13.5px;color:var(--muted);align-items:baseline}
 .kv b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
-.empty{color:var(--muted);padding:6px 0;margin:0}
+.empty{color:var(--muted);padding:6px 0;margin:0}.wknav{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}.nb{font:500 13px var(--body);color:var(--soft);background:var(--raise);border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;white-space:nowrap}.nb:hover:not(:disabled){color:var(--accent);border-color:var(--accent)}.nb:disabled{opacity:.35;cursor:default}
 .pcards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}@media(max-width:1150px){.pcards{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.pcards{grid-template-columns:minmax(0,1fr)}}
 .pcard{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-width:0;position:relative}
 .pcard[data-open]{cursor:pointer}.pcard[data-open]:hover{border-color:var(--accent)}.pcard:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -248,6 +248,9 @@ function t8tags(top){var done=top.filter(function(c){return plOf(c)!=null}),u=0;
   var firsts=top.filter(function(c){return c.res&&c.res.first}).length,fd=top.filter(function(c){return fplOf(c)!=null}),fu=0;fd.forEach(function(c){fu+=fplOf(c)});
   var n=done.length<top.length?done.length+" settled":top.length;
   return '<span class="tag">'+done.filter(function(c){return c.res.td>0}).length+" of "+n+" scored · "+(u>=0?"+":"")+f2(u,1)+'u</span><span class="tag'+(firsts?" fst":"")+'" title="'+(fd.length?"Units if each of these was also bet to score first, at the stored first-TD price":"No first-TD prices stored for this week, so only the count is shown")+'">First TD: '+firsts+" of "+n+(fd.length?" · "+(fu>=0?"+":"")+f2(fu,1)+"u":"")+"</span>"}
+function wkFull(s,w){var l=wkLab(s,w);return /^\d+$/.test(l)?"Week "+l:{WC:"Wild card",DIV:"Divisional",CONF:"Conference",SB:"Super Bowl"}[l]||l}
+function wkNav(key,list,cur,sel){var i=list.indexOf(cur);
+  return '<span class="wknav"><button class="nb" type="button" data-nav="'+key+'" data-to="'+(i>0?list[i-1]:"")+'"'+(i>0?"":" disabled")+' aria-label="Earlier week">‹ Earlier</button>'+sel+'<button class="nb" type="button" data-nav="'+key+'" data-to="'+(i<list.length-1?list[i+1]:"")+'"'+(i<list.length-1?"":" disabled")+' aria-label="Later week">Later ›</button></span>'}
 function seasonWeeks(s){var w={};(D.trk||[]).forEach(function(r){if(r[0]===s)w[r[1]]=1});if(s===D.season)weeks().forEach(function(x){w[x]=1});return Object.keys(w).map(Number).sort(function(a,b){return a-b})}
 function pool(){return poolWk(S.wk)}
 
@@ -275,9 +278,9 @@ function vPicks(){
   var isLive=S.hs===D.season&&weeks().indexOf(S.hw)>=0;if(isLive)S.wk=S.hw;
   var W=weekPicks(S.hs,S.hw),rows=W.rows,priced=rows.filter(function(r){return r._pr}),games=D.sched.filter(function(g){return g.wk===S.wk}),rec=pickRecord();
   var withP=games.filter(function(g){return oddsFor(g.gid).books.length}).length,meta=(D.odds||{})._meta||{};
-  var h='<section class="panel"><div class="phead"><h2>Top 8 · Week '+wkLab(S.hs,S.hw)+(ss.length>1?" · "+S.hs:"")+'</h2><div class="filters">'+t8tags(W.top)+
+  var h='<section class="panel"><div class="phead"><h2>Top 8 · '+wkFull(S.hs,S.hw)+(ss.length>1?" · "+S.hs:"")+'</h2><div class="filters">'+t8tags(W.top)+
     (ss.length>1?'<label class="f">Season '+seg("seg-hs",ss.map(function(y){return[y,y]}),S.hs)+"</label>":"")+
-    '<label class="f" for="selHw">Week <select id="selHw">'+wl.map(function(w){return '<option value="'+w+'"'+(w===S.hw?" selected":"")+">"+wkLab(S.hs,w)+(S.hs===D.season&&weeks().indexOf(w)>=0?" · upcoming":"")+"</option>"}).join("")+"</select></label></div></div>";
+    wkNav("hw",wl,S.hw,'<select id="selHw" aria-label="Week">'+wl.map(function(w){return '<option value="'+w+'"'+(w===S.hw?" selected":"")+">"+wkFull(S.hs,w)+(S.hs===D.season&&weeks().indexOf(w)>=0?" · upcoming":"")+"</option>"}).join("")+"</select>")+"</div></div>";
   h+='<p class="note">The eight likeliest scorers among Ledger picks: chance 20%+ with an edge of 3% to 25% at the best price across books. '+(rec?"Back-check: top 8 a week "+evTxt(rec.u8/rec.n8)+" per bet over "+rec.n8+" bets; all picks "+evTxt(rec.u/rec.n)+" over "+rec.n+". ":"")+"Cards turn green when the player scores and gold if he scores first."+(isLive?' Scores are checked every minute while this page is open. <span id="liveMsg"></span>':"")+
     (isLive?(withP?" Prices in for "+withP+" of "+games.length+" games.":" <b>No prices loaded yet for this week.</b>")+(meta.left!=null?" Odds API requests left: <b>"+meta.left+"</b>.":"")+(meta.err?" Last price pull failed: "+esc(meta.err)+".":""):"")+"</p>";
   if(W.top.length){
@@ -410,7 +413,7 @@ function vTracker(){
   if(S.twk&&wks.indexOf(S.twk)<0)S.twk=0;
   var rows=sea.filter(function(r){return !S.twk||r[1]===S.twk});
   var bands=[[0.4,1,"40%+"],[0.3,0.4,"30–40%"],[0.2,0.3,"20–30%"],[0.08,0.2,"8–20%"]];
-  var h='<section class="panel"><div class="phead"><h2>Back-check · '+S.tseason+'</h2><div class="filters">'+(ss.length>1?'<label class="f">Season '+seg("seg-tss",ss.map(function(y){return[y,y]}),S.tseason)+"</label>":"")+'<label class="f" for="selTw">Week <select id="selTw"><option value="0">All weeks</option>'+wks.map(function(w){return '<option value="'+w+'"'+(S.twk===w?" selected":"")+">"+wkLab(S.tseason,w)+"</option>"}).join("")+"</select></label></div></div>";
+  var h='<section class="panel"><div class="phead"><h2>Back-check · '+S.tseason+'</h2><div class="filters">'+(ss.length>1?'<label class="f">Season '+seg("seg-tss",ss.map(function(y){return[y,y]}),S.tseason)+"</label>":"")+''+wkNav("tw",[0].concat(wks),S.twk,'<select id="selTw" aria-label="Week"><option value="0">All weeks</option>'+wks.map(function(w){return '<option value="'+w+'"'+(S.twk===w?" selected":"")+">"+wkFull(S.tseason,w)+"</option>"}).join("")+"</select>")+"</div></div>";
   h+='<p class="note">Every '+S.tseason+" game scored by a model fitted only on earlier seasons, using only what was known before kickoff. The first table grades the chances themselves. The tables after it grade bets at the stored pre-kickoff price, best book, one unit each.</p>";
   h+='<div class="tw fit"><table><thead><tr><th>Model said</th><th class="n">Players</th><th class="n">Expected to score</th><th class="n">Scored</th><th class="n">Rate</th><th class="n">Model avg</th></tr></thead><tbody>'+bands.map(function(b){var x=rows.filter(function(r){return r[7]>=b[0]&&r[7]<b[1]}),e=0,s=0;x.forEach(function(r){e+=r[7];s+=r[8]});
     return "<tr><td>"+b[2]+'</td><td class="n">'+x.length+'</td><td class="n">'+f2(e,1)+'</td><td class="n">'+s+'</td><td class="n k"><b>'+(x.length?pct(s/x.length):"–")+'</b></td><td class="n">'+(x.length?pct(e/x.length):"–")+"</td></tr>"}).join("")+"</tbody></table></div>";
@@ -502,6 +505,7 @@ document.addEventListener("click",function(e){
   if((b=t.closest("#tabs button"))){S.tab=b.dataset.tab;S.open=null;try{history.replaceState(null,"","#"+S.tab)}catch(x){}render();return}
   if((b=t.closest(".seg button"))){var id=b.parentNode.id,v=b.dataset.v;
     ({"seg-wk":function(){S.wk=+v;S.game="all";S.open=null},"seg-minp":function(){S.minp=+v},"seg-sort":function(){S.sort=v;S.bsort=null},"seg-pos":function(){S.pos=v},"seg-priced":function(){S.priced=+v},"seg-ps":function(){S.pseason=v},"seg-pp":function(){S.ppos=v},"seg-tv":function(){S.tview=v},"seg-tss":function(){S.tseason=+v;S.twk=0},"seg-hs":function(){S.hs=+v;S.hw=null;S.open=null}}[id]||function(){})();render(true);return}
+  if((b=t.closest("[data-nav]"))){if(b.dataset.to==="")return;var to=+b.dataset.to;if(b.dataset.nav==="hw"){S.hw=to;S.game="all";S.open=null}else S.twk=to;render(true);return}
   if((b=t.closest("[data-jump]"))){e.preventDefault();var el=$(b.dataset.jump);if(el)el.scrollIntoView({behavior:"smooth",block:"start"});return}
   if(t.closest("[data-clear]")){var f=t.closest("form");delete MAN[f.dataset.price];ls("atd-manual",MAN);render(true);return}
   if(t.closest("#pasteBtn")){paste();return}
