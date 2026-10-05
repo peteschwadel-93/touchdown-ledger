@@ -616,7 +616,7 @@ def apply_locks(sched, picks, now=None):
                 d2, p2 = best2.get(norm_name(r["n"])), two_chance(r["p"], r.get("pos"), r.get("T"))
                 ev2 = p2 * d2 - 1 if d2 else None
                 cand.append({"key": (u["gid"], r["id"]), "p": r["p"], "ev": ev, "pick": pick, "long": long_,
-                             "two": bool(d2 and p2 >= TWO["p"] and TWO["lo"] < ev2 <= TWO["hi"]), "k2": ev2 / (d2 - 1) if d2 else None,
+                             "two": bool(d2 and p2 >= TWO["p"] and TWO["lo"] < ev2 <= TWO["hi"]), "k2": ev2,
                              "t8": r.get("t8") if started else None, "l4": r.get("l4") if started else None, "d2": r.get("d2") if started else None})
         for flag, kind, n, rank in (("t8", "pick", 8, "p"), ("l4", "long", 4, "ev"), ("d2", "two", 4, "k2")):
             # held players keep their place; a player whose game is still to come joins when he ranks in the best n of
@@ -832,7 +832,7 @@ def parse_two(doc):
     return out
 
 
-TWO = {"p": 0.10, "lo": 0.0, "hi": 0.30}        # the 2+ TD picks: chance of two 10%+, edge up to 30%, best four by blend (the page uses the same numbers)
+TWO = {"p": 0.20, "lo": -0.10, "hi": 0.50}      # the 2+ TD picks: chance of two 20%+, edge -10% to +50%, best four by edge (the page uses the same numbers)
 
 
 TWO_W = {"c": 0.362, "s": 1.035, "RB": -0.138, "WR": -0.54, "QB": 0.409, "T": 0.257}
