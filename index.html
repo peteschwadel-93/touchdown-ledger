@@ -216,10 +216,12 @@ function bookSel(id){var books=allBooks();return '<label class="f" for="'+id+'">
 var PK={p:0.2,lo:0.03,hi:0.25};   /* the Picks rule: see the Tracker for its record */
 function firstOf(r,book){var by=oddsFor(r.g).byf[norm(r.n)];if(!by)return null;if(book&&book!=="best")return by[book]!=null?{a:by[book],bk:book}:null;
   var best=null;Object.keys(by).forEach(function(b){if(!best||dec(by[b])>dec(best.a))best={a:by[b],bk:b}});return best}
-/* Two or more touchdowns (experimental): the chance follows from the chance of one if touchdowns arrive independently, which the back-check supports.
-   The picks: chance of two 5%+, edge above zero and no more than 30%, best four a week by blend. Untested against real 2+ prices so far. */
-var TWO={p:0.05,lo:0,hi:0.30};
-function two(p){var q=Math.min(p,0.999),lam=-Math.log(1-q);return 1-(1-q)*(1+lam)}
+/* Two or more touchdowns (experimental). The chance starts from what the chance of one implies if touchdowns arrived independently, then is corrected:
+   second touchdowns cluster with lead backs, running quarterbacks and high-scoring teams, and are rarer for receivers (weights fitted on 7,693 priced
+   player-games; build_data.py uses the same numbers). The picks: chance of two 5%+, edge above zero and no more than 30%, best four a week by blend. */
+var TWO={p:0.05,lo:0,hi:0.30},TWOW={c:0.362,s:1.035,RB:-0.138,WR:-0.54,QB:0.409,T:0.257};
+function two(p,pos,T){var a=Math.min(Math.max(p,1e-6),0.999),lam=-Math.log(1-a),q=Math.min(Math.max(1-(1-a)*(1+lam),1e-6),0.99);
+  var z=TWOW.c+TWOW.s*Math.log(q/(1-q))+(TWOW[pos]||0)+TWOW.T*((T!=null?T:2.5)-2.5);return 1/(1+Math.exp(-z))}
 function isTwo(p2,d,e){return !!(d&&p2>=TWO.p&&e>TWO.lo&&e<=TWO.hi)}
 function twoOf(r,book){var by=oddsFor(r.g).byt[norm(r.n)];if(!by)return null;if(book&&book!=="best")return by[book]!=null?{a:by[book],bk:book}:null;
   var best=null;Object.keys(by).forEach(function(b){if(!best||dec(by[b])>dec(best.a))best={a:by[b],bk:b}});return best}
@@ -228,7 +230,7 @@ function calc(r){var pr=priceOf(r,S.book);r._pr=pr;if(pr){var d=dec(pr.a);r._imp
   var fp=firstOf(r,S.book);r._fp=fp;r._fev=fp?r.pf*dec(fp.a)-1:null;
   r._pick=!!(pr&&r.p>=PK.p&&r._ev>=PK.lo&&r._ev<=PK.hi);r._top=false;r._lst=false;
   var dd=pr?dec(pr.a):0;r._ls=!!(pr&&!r._pick&&isLong(r.p,dd,r._ev));r._warn=dd>=10&&dd<15;
-  var tp=twoOf(r,S.book);r._p2=two(r.p);r._tp=tp;r._tev=tp?r._p2*dec(tp.a)-1:null;r._tk=tp?r._tev/(dec(tp.a)-1):null;r._two=isTwo(r._p2,tp?dec(tp.a):0,r._tev);r._twt=false;
+  var tp=twoOf(r,S.book);r._p2=two(r.p,r.pos,r.T);r._tp=tp;r._tev=tp?r._p2*dec(tp.a)-1:null;r._tk=tp?r._tev/(dec(tp.a)-1):null;r._two=isTwo(r._p2,tp?dec(tp.a):0,r._tev);r._twt=false;
   var bp=pr,bf=fp;r.b_pr=bp;
   if(bp){var bd=dec(bp.a);r.b_imp=1/bd;r.b_ev=r.p*bd-1;r.b_k=r.b_ev/(bd-1)}else{r.b_imp=r.b_ev=r.b_k=null}
   r.b_fp=bf;r.b_fev=bf?r.pf*dec(bf.a)-1:null;return r}
@@ -259,7 +261,7 @@ function seg(id,opts,cur){return '<span class="seg" id="'+id+'">'+opts.map(funct
 function weeks(){var w=[];D.sched.forEach(function(g){if(w.indexOf(g.wk)<0)w.push(g.wk)});return w}
 function liveRes(r){var L=(D.live||{})[r.g];if(!L)return null;var k=norm(r.n);return{td:(L.td||{})[k]||0,first:L.first===k,final:L.st==="post"}}
 function cardLive(r){var g=gm(r.g);return{live:1,t8:r.t8,l4:r.l4,d2:r.d2,two:r._two,p2:r._p2,tp:r._tp,tev:r._tev,tk:r._tk,key:r.g+"|"+r.id,row:r,n:r.n,t:r.t,o:r.o,pos:r.pos,p:r.p,pr:r._pr,ev:r._ev,pf:r.pf,fp:r._fp,fev:r._fev,home:g.h===r.t,when:g.t,res:liveRes(r),pick:r._pick,ls:r._ls}}
-function cardPast(r){var sp=storedPrice(r),fp=firstPrice(r),d=sp?dec(sp[0]):null,e=d?r[7]*d-1:null,t2=twoPrice(r),d2=t2?dec(t2[0]):null,q2=two(r[7]),e2=d2?q2*d2-1:null;
+function cardPast(r){var sp=storedPrice(r),fp=firstPrice(r),d=sp?dec(sp[0]):null,e=d?r[7]*d-1:null,t2=twoPrice(r),d2=t2?dec(t2[0]):null,q2=two(r[7],r[6],r[15]),e2=d2?q2*d2-1:null;
   return{t8:r[12],l4:r[13],d2:r[14],two:isTwo(q2,d2,e2),p2:q2,tp:t2?{a:t2[0],bk:t2[1]}:null,tev:e2,tk:d2?e2/(d2-1):null,n:r[3],t:r[4],o:r[5],pos:r[6],home:String(r[2]).split("_")[3]===r[4],p:r[7],pr:sp?{a:sp[0],bk:sp[1]}:null,ev:e,pf:r[10],fp:fp?{a:fp[0],bk:fp[1]}:null,fev:fp&&r[10]!=null?r[10]*dec(fp[0])-1:null,res:{td:r[9]||r[8],first:!!r[11],final:true},pick:!!(d&&r[7]>=PK.p&&e>=PK.lo&&e<=PK.hi),ls:!!(d&&!(r[7]>=PK.p&&e>=PK.lo&&e<=PK.hi)&&isLong(r[7],d,e))}}
 /* every Ledger pick of a week: games still to come (live model) plus games already in the books (graded rows) */
 /* The n best of an already-sorted list, with membership fixed at each game's kickoff: flag 1 = was on the list when his game started (keeps his
@@ -337,7 +339,7 @@ function vPicks(){
     (W.lsTop.length?'<div class="pcards">'+W.lsTop.map(function(c,i){return pcard(c,i).replace('class="pcard ','class="pcard lsc ')}).join("")+"</div>":'<p class="empty">'+(isLive?"No player fits the tier right now.":"No stored prices for this week.")+"</p>")+"</section>";
   var twd=W.twoTop.filter(function(c){return plOf(c)!=null}),twu=0;twd.forEach(function(c){twu+=plOf(c)});
   h+='<section class="panel"><div class="phead"><h2>2+ touchdowns · experimental</h2><div class="filters">'+(twd.length?'<span class="tag">'+twd.filter(function(c){return c.res.td>0}).length+" of "+twd.length+" hit · "+(twu>=0?"+":"")+f2(twu,1)+"u</span>":"")+'<span class="tag">'+W.two.length+" qualify this week</span></div></div>"+
-    '<p class="note">Up to four players to score twice or more. The chance comes straight from the anytime model, which has matched how often two-touchdown games happen. A player qualifies at 5% or better with an edge above zero and no more than 30%; the four shown have the biggest blend (edge weighted by likelihood), with places fixed at kickoff like the lists above. These prices carry a wide margin and this rule has no track record yet, so keep stakes small.</p>'+
+    '<p class="note">Up to four players to score twice or more. The chance starts from the anytime model and is adjusted for who actually scores twice: lead backs, running quarterbacks and players on high-scoring teams more often, receivers less. A player qualifies at 5% or better with an edge above zero and no more than 30%; the four shown have the biggest blend (edge weighted by likelihood), with places fixed at kickoff like the lists above. These prices carry a wide margin and this rule has no track record yet, so keep stakes small.</p>'+
     (W.twoTop.length?'<div class="pcards">'+W.twoTop.map(function(c,i){return pcard(c,i).replace('class="pcard ','class="pcard lsc ')}).join("")+"</div>":'<p class="empty">'+(isLive?"No player qualifies right now, or no 2+ TD prices are loaded yet.":"No stored 2+ TD prices for this week.")+"</p>")+"</section>";
   var rest=W.picks.filter(function(c){return !c.live});
   if(rest.length){var all=W.picks.filter(function(c){return plOf(c)!=null}),ua=0;all.forEach(function(c){ua+=plOf(c)});
@@ -518,7 +520,8 @@ function twoPrice(r){var o=(D.odds||{})[r[2]];if(!o)return null;if(!o._tx)o._tx=
 function firstPrice(r){var o=(D.odds||{})[r[2]];if(!o)return null;if(!o._fx)o._fx=indexOdds(o,"bestf","f");return pickBook(o._fx[norm(r[3])])}
 function isLs(b){return !isPk(b)&&isLong(b.r[7],dec(b.a),b.e)}
 function top4(ls){var by={},out=[];ls.forEach(function(b){var k=b.r[0]+"|"+b.r[1];(by[k]=by[k]||[]).push(b)});Object.keys(by).forEach(function(k){out=out.concat(heldN(by[k].sort(function(a,b){return b.e-a.e}),4,function(b){return b.r[13]}))});return out}
-function gradeTwo(rows){var out=[];rows.forEach(function(r){var t=twoPrice(r);if(!t)return;var d=dec(t[0]),q=two(r[7]),e=q*d-1;if(!isTwo(q,d,e))return;out.push({r:r,a:t[0],bk:t[1],e:e,k:e/(d-1),w:r[9]>=2?1:0,pl:r[9]>=2?d-1:-1})});return out}
+function gradeTwo(rows,any){var out=[];rows.forEach(function(r){var t=twoPrice(r);if(!t)return;var d=dec(t[0]),q=two(r[7],r[6],r[15]),e=q*d-1;if(!any&&!isTwo(q,d,e))return;out.push({r:r,q:q,a:t[0],bk:t[1],e:e,k:e/(d-1),w:r[9]>=2?1:0,pl:r[9]>=2?d-1:-1})});return out}
+function likely4(x){var by={},out=[];x.forEach(function(b){var k=b.r[0]+"|"+b.r[1];(by[k]=by[k]||[]).push(b)});Object.keys(by).forEach(function(k){out=out.concat(by[k].sort(function(a,b){return b.q-a.q}).slice(0,4))});return out}
 function top4two(x){var by={},out=[];x.forEach(function(b){var k=b.r[0]+"|"+b.r[1];(by[k]=by[k]||[]).push(b)});Object.keys(by).forEach(function(k){out=out.concat(heldN(by[k].sort(function(a,b){return b.k-a.k}),4,function(b){return b.r[14]}))});return out}
 var _lrec;function longRecord(){if(_lrec!==undefined)return _lrec;var x=gradeAll(D.trk||[]).filter(isLs),u=0,t=top4(x),u4=0;x.forEach(function(b){u+=b.pl});t.forEach(function(b){u4+=b.pl});return _lrec=x.length?{n:x.length,u:u,n4:t.length,u4:u4}:null}
 var _rec;function pickRecord(){if(_rec!==undefined)return _rec;var x=gradeAll(D.trk||[]).filter(isPk),u=0,t=top8(x),u8=0;x.forEach(function(b){u+=b.pl});t.forEach(function(b){u8+=b.pl});return _rec=x.length?{n:x.length,u:u,n8:t.length,u8:u8}:null}
@@ -548,6 +551,7 @@ function vTracker(){
       line("<b>Long shots</b> · top 4 a week · "+(S.twk?"this week":S.tseason),top4(pr.filter(isLs)),"Biggest edges in the tier. Experimental")+line("Long shots · top 4 a week · every stored game",top4(gradeAll(all).filter(isLs)),"Both seasons together")+
       line("Long-shot tier · all · every stored game",gradeAll(all).filter(isLs),"Chance 10–25%, +400 to +900, positive edge")+
       line("<b>2+ TDs</b> · top 4 a week · "+(S.twk?"this week":S.tseason),top4two(gradeTwo(rows)),"Biggest blend among the qualifiers. Experimental")+line("2+ TDs · every qualifier · every stored game",gradeTwo(all),"Chance of two 5%+, edge up to 30%")+
+      line("2+ TDs · four likeliest a week, any price · every stored game",likely4(gradeTwo(all,1)),"Hit rate first: the four highest chances whatever the edge")+
       line("Avoid band · +900 to +1400 · every stored game",gradeAll(all).filter(function(b){var d=dec(b.a);return d>=10&&d<15}),"Everyone priced there, any edge")+
       line("Edge above 25%",big,"Chance 20%+. The book usually knows something")+line("Model says overpriced",no,"Chance 20%+, edge below −3%. The bets to skip")+"</tbody></table></div>";
     var byW={};pk.forEach(function(b){var w=b.r[1];(byW[w]=byW[w]||{n:0,w:0,u:0});byW[w].n++;byW[w].w+=b.r[8];byW[w].u+=b.pl});

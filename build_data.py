@@ -537,6 +537,10 @@ def make(season=None, old=None):
             row_[7], row_[10] = v[0], v[1]
             if len(v) > 3:              # on the Top 8 / long-shot / 2+ TD list at kickoff (1) or not (0)
                 row_ += [v[2], v[3], v[4] if len(v) > 4 else None]
+    tmap = {(a, b_): r3(c, 2) for a, b_, c in zip(s.game_id, s.posteam, s["T"])}
+    for row_ in trk:                      # the team's expected touchdowns, for the 2+ TD chance
+        row_ += [None] * (15 - len(row_))
+        row_.append(tmap.get((row_[2], row_[4])))
     out["live"] = live_scores(sched)
     out["notes"] = espn_notes({norm_name(x["n"]) for x in out["picks"]})
     out["odds"] = {}
@@ -609,7 +613,7 @@ def apply_locks(sched, picks, now=None):
                 ev = r["p"] * d - 1 if d else None
                 pick = bool(d and r["p"] >= 0.2 and 0.03 <= ev <= 0.25)
                 long_ = bool(d and not pick and 0.10 <= r["p"] < 0.25 and 5 <= d < 10 and ev > 0)
-                d2, p2 = best2.get(norm_name(r["n"])), two_chance(r["p"])
+                d2, p2 = best2.get(norm_name(r["n"])), two_chance(r["p"], r.get("pos"), r.get("T"))
                 ev2 = p2 * d2 - 1 if d2 else None
                 cand.append({"key": (u["gid"], r["id"]), "p": r["p"], "ev": ev, "pick": pick, "long": long_,
                              "two": bool(d2 and p2 >= TWO["p"] and TWO["lo"] < ev2 <= TWO["hi"]), "k2": ev2 / (d2 - 1) if d2 else None,
@@ -831,10 +835,18 @@ def parse_two(doc):
 TWO = {"p": 0.05, "lo": 0.0, "hi": 0.30}        # the 2+ TD picks: chance of two 5%+, edge up to 30%, best four by blend (the page uses the same numbers)
 
 
-def two_chance(p):
-    """Chance of two or more touchdowns from the chance of at least one, if touchdowns arrive independently."""
-    lam = -math.log(max(1e-9, 1 - min(p, 0.999)))
-    return 1 - (1 - p) * (1 + lam)
+TWO_W = {"c": 0.362, "s": 1.035, "RB": -0.138, "WR": -0.54, "QB": 0.409, "T": 0.257}
+
+
+def two_chance(p, pos=None, T=None):
+    """Chance of two or more touchdowns. Starts from what the chance of one implies if touchdowns arrived independently, then
+    corrects it: second touchdowns cluster with lead backs, running quarterbacks and high-scoring teams, and are rarer for
+    receivers. Weights fitted on 7,693 priced player-games (2025 and early 2026); the page uses the same numbers."""
+    p = min(max(p, 1e-6), 0.999)
+    lam = -math.log(1 - p)
+    q = min(max(1 - (1 - p) * (1 + lam), 1e-6), 0.99)
+    z = TWO_W["c"] + TWO_W["s"] * math.log(q / (1 - q)) + TWO_W.get(pos, 0.0) + TWO_W["T"] * ((T if T is not None else 2.5) - 2.5)
+    return 1 / (1 + math.exp(-z))
 
 
 def remember_odds(sched, old, force=False):
