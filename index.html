@@ -224,11 +224,13 @@ function firstOf(r,book){var by=oddsFor(r.g).byf[norm(r.n)];if(!by)return null;i
   var best=null;Object.keys(by).forEach(function(b){if(!best||dec(by[b])>dec(best.a))best={a:by[b],bk:b}});return best}
 /* Two or more touchdowns (experimental). The chance starts from what the chance of one implies if touchdowns arrived independently, then is corrected:
    second touchdowns cluster with lead backs, running quarterbacks and high-scoring teams, and are rarer for receivers (weights fitted on 7,693 priced
-   player-games; build_data.py uses the same numbers). The picks: chance of two 20%+, edge between -10% and +50%, best four a week by edge (likelihood first, price as the tiebreak; bigger edges are usually the model being wrong). */
+   player-games; build_data.py uses the same numbers). The picks: the four likeliest each week among players with a 2+ TD price and a 15%+ chance, whatever the edge (the floor keeps
+   filler out of short slates such as playoff weeks). Over 23 weeks of real prices that was the only
+   four-a-week rule positive in every stretch (91 bets, 26 hits, +22 units); rules built on edge did not hold up. */
 var TWO={p:0.20,lo:-0.10,hi:0.50},TWOW={c:0.362,s:1.035,RB:-0.138,WR:-0.54,QB:0.409,T:0.257};
 function two(p,pos,T){var a=Math.min(Math.max(p,1e-6),0.999),lam=-Math.log(1-a),q=Math.min(Math.max(1-(1-a)*(1+lam),1e-6),0.99);
   var z=TWOW.c+TWOW.s*Math.log(q/(1-q))+(TWOW[pos]||0)+TWOW.T*((T!=null?T:2.5)-2.5);return 1/(1+Math.exp(-z))}
-function isTwo(p2,d,e){return !!(d&&p2>=TWO.p&&e>TWO.lo&&e<=TWO.hi)}
+function isTwo(p2,d,e){return !!(d&&p2>=0.15)}
 function twoOf(r,book){var by=oddsFor(r.g).byt[norm(r.n)];if(!by)return null;if(book&&book!=="best")return by[book]!=null?{a:by[book],bk:book}:null;
   var best=null;Object.keys(by).forEach(function(b){if(!best||dec(by[b])>dec(best.a))best={a:by[b],bk:b}});return best}
 function twoCard(c){var r=c.res;return Object.assign({},c,{isTwo:1,p1:c.p,p:c.p2,pr:c.tp,ev:c.tev,fp:null,pf:null,fev:null,res:r?{td:r.td>=2?r.td:0,one:r.td===1,first:false,final:r.final}:r})}
@@ -281,7 +283,7 @@ function weekPicks(season,wk){var out=[],ls=[],rows=[],tw=[];
   (D.trk||[]).forEach(function(r){if(r[0]===season&&r[1]===wk&&!gm(r[2])){var c=cardPast(r);if(c.pick)out.push(c);else if(c.ls)ls.push(c);if(c.two)tw.push(twoCard(c))}});
   out.sort(function(a,b){return b.p-a.p});var top=heldN(out,8,function(c){return c.t8});top.forEach(function(c){c.top=true;if(c.row)c.row._top=true});
   ls.sort(function(a,b){return b.ev-a.ev});var lt=heldN(ls,4,function(c){return c.l4});lt.forEach(function(c){c.lsTop=true;if(c.row)c.row._lst=true});
-  tw.sort(function(a,b){return b.tev-a.tev});var tt=heldN(tw,4,function(c){return c.d2});tt.forEach(function(c){if(c.row)c.row._twt=true});
+  tw.sort(function(a,b){return b.p-a.p});var tt=heldN(tw,4,function(c){return c.d2});tt.forEach(function(c){if(c.row)c.row._twt=true});
   return{rows:rows,picks:out,top:top,ls:ls,lsTop:lt,two:tw,twoTop:tt}}
 function poolWk(wk){return weekPicks(D.season,wk).rows}
 function plOf(c){return !c.res||!c.pr?null:c.res.td>0?dec(c.pr.a)-1:c.res.final?-1:null}
@@ -344,8 +346,8 @@ function vPicks(){
     '<p class="note">Four wider-odds plays: chance 10–25%, price +400 to +900, and the model says the price is at least fair. These are the four biggest edges in that tier, and places are fixed at kickoff: nobody is added or dropped once his game has started, so the list grows past four when a later game produces a bigger edge than one already locked in. '+(lrec?"Back-check: the whole tier "+evTxt(lrec.u/lrec.n)+" per bet over "+lrec.n+" bets; the top four a week "+evTxt(lrec.u4/lrec.n4)+" over "+lrec.n4+". ":"")+"The whole tier has been positive but no way of choosing a few from it has held up, so treat these as a small-stake experiment.</p>"+
     (W.lsTop.length?'<div class="pcards">'+W.lsTop.map(function(c,i){return pcard(c,i).replace('class="pcard ','class="pcard lsc ')}).join("")+"</div>":'<p class="empty">'+(isLive?"No player fits the tier right now.":"No stored prices for this week.")+"</p>")+"</section>";
   var twd=W.twoTop.filter(function(c){return plOf(c)!=null}),twu=0;twd.forEach(function(c){twu+=plOf(c)});
-  h+='<section class="panel"><div class="phead"><h2>2+ touchdowns · experimental</h2><div class="filters">'+(twd.length?'<span class="tag">'+twd.filter(function(c){return c.res.td>0}).length+" of "+twd.length+" hit · "+(twu>=0?"+":"")+f2(twu,1)+"u</span>":"")+'<span class="tag">'+W.two.length+" qualify this week</span></div></div>"+
-    '<p class="note">Up to four players to score twice or more. The chance starts from the anytime model and is adjusted for who actually scores twice: lead backs, running quarterbacks and players on high-scoring teams more often, receivers less. Hit rate comes first here: only players at 20% or better qualify, which is usually five to eight lead backs and running quarterbacks a week, and the four shown are the ones whose price is best against the model. Edges below −10% are skipped as overpriced, and edges above 50% are skipped because a gap that big usually means the model is wrong about the player. Places are fixed at kickoff like the lists above. These prices carry a wide margin and this rule has no track record yet, so keep stakes small.</p>'+
+  h+='<section class="panel"><div class="phead"><h2>2+ touchdowns · experimental</h2><div class="filters">'+(twd.length?'<span class="tag">'+twd.filter(function(c){return c.res.td>0}).length+" of "+twd.length+" hit · "+(twu>=0?"+":"")+f2(twu,1)+"u</span>":"")+"</div></div>"+
+    '<p class="note">Up to four players to score twice or more. The chance starts from the anytime model and is adjusted for who actually scores twice: lead backs, running quarterbacks and players on high-scoring teams more often, receivers less. Hit rate comes first here: these are simply the four likeliest players of the week among those with a 2+ TD price, whatever the edge. A player needs a 15% chance to make the list, so a short slate such as a playoff week can show fewer than four. Over 23 weeks of real prices that hit 28% at an average of about +380 and was the only four-a-week rule that made money in every stretch; picking by edge did not hold up. Places are fixed at kickoff like the lists above. Expect no hits about one week in five, and treat the return as unproven: 92 bets is not many.</p>'+
     (W.twoTop.length?'<div class="pcards">'+W.twoTop.map(function(c,i){return pcard(c,i).replace('class="pcard ','class="pcard lsc ')}).join("")+"</div>":'<p class="empty">'+(isLive?"No player qualifies right now, or no 2+ TD prices are loaded yet.":"No stored 2+ TD prices for this week.")+"</p>")+"</section>";
   var rest=W.picks.filter(function(c){return !c.live});
   if(rest.length){var all=W.picks.filter(function(c){return plOf(c)!=null}),ua=0;all.forEach(function(c){ua+=plOf(c)});
@@ -354,7 +356,7 @@ function vPicks(){
   if(!isLive)return h;
   /* board */
   var books=allBooks();
-  var list=rows.filter(function(r){return (S.pos==="all"||r.pos===S.pos)&&(S.game==="all"||r.g===S.game)&&(S.priced===5?r._two:S.priced===4?r._ls:S.priced===3?r._top:S.priced===2?r._pick:r.p>=S.minp&&(!S.priced||r.b_pr))});
+  var list=rows.filter(function(r){return (S.pos==="all"||r.pos===S.pos)&&(S.game==="all"||r.g===S.game)&&(S.priced===5?r._twt:S.priced===4?r._ls:S.priced===3?r._top:S.priced===2?r._pick:r.p>=S.minp&&(!S.priced||r.b_pr))});
   var key={value:function(r){return r.b_ev==null?-9:r.b_ev},blend:function(r){return r.b_k==null?-9:r.b_k},likely:function(r){return r.p}}[S.sort];
   if(S.bsort){var bf=BC[S.bsort[0]][1],bd=S.bsort[1];list.sort(function(a,b){var x=bf(a),y=bf(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return (typeof x==="string"?x.localeCompare(y):x-y)*bd})}
   else list.sort(function(a,b){return key(b)-key(a)||b.p-a.p});
@@ -530,8 +532,9 @@ function top4(ls){var by={},out=[];ls.forEach(function(b){var k=b.r[0]+"|"+b.r[1
 function gradeTwo(rows,any){var out=[];rows.forEach(function(r){var t=twoPrice(r);if(!t)return;var d=dec(t[0]),q=two(r[7],r[6],r[15]),e=q*d-1;if(!any&&!isTwo(q,d,e))return;out.push({r:r,q:q,a:t[0],bk:t[1],e:e,k:e/(d-1),w:r[9]>=2?1:0,pl:r[9]>=2?d-1:-1})});return out}
 /* round robin by twos: every pair of the week's 2+ TD picks from different games, one unit a pair */
 function rr2(x){var by={},out=[];x.forEach(function(b){var k=b.r[0]+"|"+b.r[1];(by[k]=by[k]||[]).push(b)});Object.keys(by).forEach(function(k){var a=by[k];for(var i=0;i<a.length;i++)for(var j=i+1;j<a.length;j++){if(a[i].r[2]===a[j].r[2])continue;var hit=a[i].w&&a[j].w;out.push({r:a[i].r,w:hit?1:0,pl:hit?dec(a[i].a)*dec(a[j].a)-1:-1})}});return out}
+function valueTwo(x){var by={},out=[];x.forEach(function(b){if(!(b.q>=0.2&&b.e>-0.1&&b.e<=0.5))return;var k=b.r[0]+"|"+b.r[1];(by[k]=by[k]||[]).push(b)});Object.keys(by).forEach(function(k){out=out.concat(by[k].sort(function(a,b){return b.e-a.e}).slice(0,4))});return out}
 function likely4(x){var by={},out=[];x.forEach(function(b){var k=b.r[0]+"|"+b.r[1];(by[k]=by[k]||[]).push(b)});Object.keys(by).forEach(function(k){out=out.concat(by[k].sort(function(a,b){return b.q-a.q}).slice(0,4))});return out}
-function top4two(x){var by={},out=[];x.forEach(function(b){var k=b.r[0]+"|"+b.r[1];(by[k]=by[k]||[]).push(b)});Object.keys(by).forEach(function(k){out=out.concat(heldN(by[k].sort(function(a,b){return b.e-a.e}),4,function(b){return b.r[14]}))});return out}
+function top4two(x){var by={},out=[];x.forEach(function(b){var k=b.r[0]+"|"+b.r[1];(by[k]=by[k]||[]).push(b)});Object.keys(by).forEach(function(k){out=out.concat(heldN(by[k].sort(function(a,b){return b.q-a.q}),4,function(b){return b.r[14]}))});return out}
 var _lrec;function longRecord(){if(_lrec!==undefined)return _lrec;var x=gradeAll(D.trk||[]).filter(isLs),u=0,t=top4(x),u4=0;x.forEach(function(b){u+=b.pl});t.forEach(function(b){u4+=b.pl});return _lrec=x.length?{n:x.length,u:u,n4:t.length,u4:u4}:null}
 var _rec;function pickRecord(){if(_rec!==undefined)return _rec;var x=gradeAll(D.trk||[]).filter(isPk),u=0,t=top8(x),u8=0;x.forEach(function(b){u+=b.pl});t.forEach(function(b){u8+=b.pl});return _rec=x.length?{n:x.length,u:u,n8:t.length,u8:u8}:null}
 function wkLab(s,w){var n=s>=2021?18:17;return w<=n?String(w):["WC","DIV","CONF","SB"][w-n-1]||String(w)}
@@ -559,9 +562,8 @@ function vTracker(){
       line("<b>Ledger picks</b> · "+(S.twk?"this week":S.tseason),pk,"Chance 20%+, edge 3% to 25%")+line("Ledger picks · every stored game",allPk,"Both seasons together")+
       line("<b>Long shots</b> · top 4 a week · "+(S.twk?"this week":S.tseason),top4(pr.filter(isLs)),"Biggest edges in the tier. Experimental")+line("Long shots · top 4 a week · every stored game",top4(gradeAll(all).filter(isLs)),"Both seasons together")+
       line("Long-shot tier · all · every stored game",gradeAll(all).filter(isLs),"Chance 10–25%, +400 to +900, positive edge")+
-      line("<b>2+ TDs</b> · top 4 a week · "+(S.twk?"this week":S.tseason),top4two(gradeTwo(rows)),"Chance 20%+, best four by edge. Experimental")+line("2+ TDs · round robin by twos · "+(S.twk?"this week":S.tseason),rr2(top4two(gradeTwo(rows))),"Every pair of the week\'s picks from different games, one unit a pair. Loses most weeks, pays big when two hit")+
-      line("2+ TDs · every qualifier · every stored game",gradeTwo(all),"Chance of two 20%+, edge −10% to +50%")+
-      line("2+ TDs · four likeliest a week, any price · every stored game",likely4(gradeTwo(all,1)),"Hit rate first: the four highest chances whatever the edge")+
+      line("<b>2+ TDs</b> · four likeliest a week · "+(S.twk?"this week":S.tseason),top4two(gradeTwo(rows)),"The four highest chances at 15%+ with a price, whatever the edge. Experimental")+line("2+ TDs · four likeliest a week · every stored game",top4two(gradeTwo(all)),"Both seasons together")+line("2+ TDs · round robin by twos · "+(S.twk?"this week":S.tseason),rr2(top4two(gradeTwo(rows))),"Every pair of the week\'s picks from different games, one unit a pair. Loses most weeks, pays big when two hit")+
+      line("2+ TDs · old value rule · every stored game",valueTwo(gradeTwo(all,1)),"For comparison: chance 20%+, edge −10% to +50%, best four by edge")+
       line("Avoid band · +900 to +1400 · every stored game",gradeAll(all).filter(function(b){var d=dec(b.a);return d>=10&&d<15}),"Everyone priced there, any edge")+
       line("Edge above 25%",big,"Chance 20%+. The book usually knows something")+line("Model says overpriced",no,"Chance 20%+, edge below −3%. The bets to skip")+"</tbody></table></div>";
     var byW={};pk.forEach(function(b){var w=b.r[1];(byW[w]=byW[w]||{n:0,w:0,u:0});byW[w].n++;byW[w].w+=b.r[8];byW[w].u+=b.pl});

@@ -616,7 +616,7 @@ def apply_locks(sched, picks, now=None):
                 d2, p2 = best2.get(norm_name(r["n"])), two_chance(r["p"], r.get("pos"), r.get("T"))
                 ev2 = p2 * d2 - 1 if d2 else None
                 cand.append({"key": (u["gid"], r["id"]), "p": r["p"], "ev": ev, "pick": pick, "long": long_,
-                             "two": bool(d2 and p2 >= TWO["p"] and TWO["lo"] < ev2 <= TWO["hi"]), "k2": ev2,
+                             "two": bool(d2 and p2 >= 0.15), "k2": p2,          # the 2+ TD picks: the four likeliest with a price, whatever the edge
                              "t8": r.get("t8") if started else None, "l4": r.get("l4") if started else None, "d2": r.get("d2") if started else None})
         for flag, kind, n, rank in (("t8", "pick", 8, "p"), ("l4", "long", 4, "ev"), ("d2", "two", 4, "k2")):
             # held players keep their place; a player whose game is still to come joins when he ranks in the best n of
