@@ -832,7 +832,7 @@ def parse_two(doc):
     return out
 
 
-TWO = {"p": 0.05, "lo": 0.0, "hi": 0.30}        # the 2+ TD picks: chance of two 5%+, edge up to 30%, best four by blend (the page uses the same numbers)
+TWO = {"p": 0.10, "lo": 0.0, "hi": 0.30}        # the 2+ TD picks: chance of two 10%+, edge up to 30%, best four by blend (the page uses the same numbers)
 
 
 TWO_W = {"c": 0.362, "s": 1.035, "RB": -0.138, "WR": -0.54, "QB": 0.409, "T": 0.257}
