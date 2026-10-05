@@ -23,7 +23,7 @@ request per pull; listing the games is free. Prices are kept in odds.json so pas
 Data: github.com/nflverse (play-by-play, snap counts, weekly rosters, injury reports) and nfldata games.csv
 (schedule, closing spread and total). Everything is cached in ./nfl_cache.
 """
-import argparse, json, os, re, shutil, socket, subprocess, sys, threading, time, unicodedata, urllib.error, urllib.request, webbrowser
+import argparse, json, math, os, re, shutil, socket, subprocess, sys, threading, time, unicodedata, urllib.error, urllib.request, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -521,9 +521,9 @@ def make(season=None, old=None):
            "model": model, "trk": trk, "feed": td_feed(pbp, d, pl, [season - 1, season])}
     note = None
     bf = os.environ.get("ODDS_BACKFILL", "").strip().lower()
-    if bf in ("1", "2", "3", "true"):
+    if bf in ("1", "2", "3", "4", "true"):
         try:
-            backfill(season, int(os.environ.get("ODDS_LEAD", "60")), True, int(os.environ.get("ODDS_BACKFILL_MAX", "0")) or None, back=1 if bf == "2" else 0, first=bf == "3")
+            backfill(season, int(os.environ.get("ODDS_LEAD", "60")), True, int(os.environ.get("ODDS_BACKFILL_MAX", "0")) or None, back=1 if bf == "2" else 0, first=bf == "3", two=bf == "4")
         except SystemExit as e:
             note = str(e)
             print(note, file=sys.stderr)
@@ -535,8 +535,8 @@ def make(season=None, old=None):
         if lk and norm_name(row_[3]) in lk:
             v = lk[norm_name(row_[3])]
             row_[7], row_[10] = v[0], v[1]
-            if len(v) > 3:              # on the Top 8 / long-shot list at kickoff (1) or not (0)
-                row_ += [v[2], v[3]]
+            if len(v) > 3:              # on the Top 8 / long-shot / 2+ TD list at kickoff (1) or not (0)
+                row_ += [v[2], v[3], v[4] if len(v) > 4 else None]
     out["live"] = live_scores(sched)
     out["notes"] = espn_notes({norm_name(x["n"]) for x in out["picks"]})
     out["odds"] = {}
@@ -557,6 +557,13 @@ def make(season=None, old=None):
                     bf_[who] = [who, price, bk]
         if bf_:
             out["odds"][k]["bestf"] = list(bf_.values())
+        bt_ = {}
+        for bk, rows_ in (v.get("t") or {}).items():
+            for who, price in rows_:
+                if who not in bt_ or price > bt_[who][1]:
+                    bt_[who] = [who, price, bk]
+        if bt_:
+            out["odds"][k]["bestt"] = list(bt_.values())
     if note:
         out["odds"]["_meta"]["err"] = note[:200]
     return out
@@ -590,20 +597,24 @@ def apply_locks(sched, picks, now=None):
                 continue
             rec = store.get(u["gid"]) or {}
             started = hours[u["gid"]] <= 0 and rec.get("lockrows")
-            best = {}
-            for rows_ in (rec.get("b") or {}).values():
-                for x in rows_:
-                    k = norm_name(x[0])
-                    if isinstance(x[1], (int, float)) and x[1] and (k not in best or american(x[1]) > best[k]):
-                        best[k] = american(x[1])
+            best, best2 = {}, {}
+            for src, dst in ((rec.get("b") or {}, best), (rec.get("t") or {}, best2)):
+                for rows_ in src.values():
+                    for x in rows_:
+                        k = norm_name(x[0])
+                        if isinstance(x[1], (int, float)) and x[1] and (k not in dst or american(x[1]) > dst[k]):
+                            dst[k] = american(x[1])
             for r in (rec["lockrows"] if started else by.get(u["gid"], [])):
                 d = best.get(norm_name(r["n"]))
                 ev = r["p"] * d - 1 if d else None
                 pick = bool(d and r["p"] >= 0.2 and 0.03 <= ev <= 0.25)
                 long_ = bool(d and not pick and 0.10 <= r["p"] < 0.25 and 5 <= d < 10 and ev > 0)
+                d2, p2 = best2.get(norm_name(r["n"])), two_chance(r["p"])
+                ev2 = p2 * d2 - 1 if d2 else None
                 cand.append({"key": (u["gid"], r["id"]), "p": r["p"], "ev": ev, "pick": pick, "long": long_,
-                             "t8": r.get("t8") if started else None, "l4": r.get("l4") if started else None})
-        for flag, kind, n, rank in (("t8", "pick", 8, "p"), ("l4", "long", 4, "ev")):
+                             "two": bool(d2 and p2 >= TWO["p"] and TWO["lo"] < ev2 <= TWO["hi"]), "k2": ev2 / (d2 - 1) if d2 else None,
+                             "t8": r.get("t8") if started else None, "l4": r.get("l4") if started else None, "d2": r.get("d2") if started else None})
+        for flag, kind, n, rank in (("t8", "pick", 8, "p"), ("l4", "long", 4, "ev"), ("d2", "two", 4, "k2")):
             # held players keep their place; a player whose game is still to come joins when he ranks in the best n of
             # everyone still eligible, so the list can grow past n but never drops anybody
             best_n = sorted((c for c in cand if c[flag] != 0 and c[kind]), key=lambda c: -c[rank])[:n]
@@ -617,8 +628,8 @@ def apply_locks(sched, picks, now=None):
         rec = store.get(u["gid"]) or {}
         if 0 < hrs <= 2 and rows:
             flags = lambda r, f: int((member.get((u["gid"], r["id"])) or {}).get(f, 0))
-            rec["lockrows"] = [dict(r, t8=flags(r, "t8"), l4=flags(r, "l4")) for r in rows]
-            rec["lock"] = {norm_name(r["n"]): [r["p"], r["pf"], flags(r, "t8"), flags(r, "l4")] for r in rows}
+            rec["lockrows"] = [dict(r, t8=flags(r, "t8"), l4=flags(r, "l4"), d2=flags(r, "d2")) for r in rows]
+            rec["lock"] = {norm_name(r["n"]): [r["p"], r["pf"], flags(r, "t8"), flags(r, "l4"), flags(r, "d2")] for r in rows}
             store[u["gid"]] = rec
             u["lk"] = 1          # saved: the page can say "frozen" the moment the game kicks off
         elif hrs <= 0 and rec.get("lockrows"):
@@ -800,6 +811,32 @@ def parse_td(doc, market="player_anytime_td"):
     return out
 
 
+def parse_two(doc):
+    """{book: [[player, american price], ...]} for two or more touchdowns (the over on a 1.5 line) in one event."""
+    out = {}
+    for bk in doc.get("bookmakers") or []:
+        rows = {}
+        for mk in bk.get("markets") or []:
+            if mk.get("key") not in ("player_tds_over", "player_tds"):
+                continue
+            for o in mk.get("outcomes") or []:
+                who, price, pt = o.get("description"), o.get("price"), o.get("point")
+                if who and str(o.get("name")) == "Over" and isinstance(price, (int, float)) and isinstance(pt, (int, float)) and abs(pt - 1.5) < 0.01:
+                    rows[who] = int(price)
+        if rows:
+            out[bk.get("title") or bk.get("key")] = [[k, v] for k, v in rows.items()]
+    return out
+
+
+TWO = {"p": 0.05, "lo": 0.0, "hi": 0.30}        # the 2+ TD picks: chance of two 5%+, edge up to 30%, best four by blend (the page uses the same numbers)
+
+
+def two_chance(p):
+    """Chance of two or more touchdowns from the chance of at least one, if touchdowns arrive independently."""
+    lam = -math.log(max(1e-9, 1 - min(p, 0.999)))
+    return 1 - (1 - p) * (1 + lam)
+
+
 def remember_odds(sched, old, force=False):
     """Anytime-TD prices for the listed games from The Odds API, kept in odds.json.
 
@@ -827,6 +864,7 @@ def remember_odds(sched, old, force=False):
         rec = store.get(u["gid"]) or {}
         due = sum(1 for h in looks if hrs <= h)          # looks whose time has come
         nof = rec.get("b") and not rec.get("f") and rec.get("ftries", 0) < 3 and hrs <= looks[0]     # one catch-up for first-TD prices
+        nof = nof or (rec.get("b") and not rec.get("t") and rec.get("ttries", 0) < 2 and hrs <= looks[0])      # and for 2+ TD prices
         if 0 < hrs and ((due > rec.get("n", 0) and rec.get("tries", 0) < 8) or nof or (force and hrs <= 72)):
             want.append((u, due))
     if want:
@@ -837,9 +875,9 @@ def remember_odds(sched, old, force=False):
                 eid = ids.get((u["a"], u["h"]))
                 if not eid:
                     continue
-                raw, hd = get(f"{ODDS_API}/events/{eid}/odds?apiKey={key}&regions=us&markets=player_anytime_td,player_1st_td&oddsFormat=american", 60, headers=True)
+                raw, hd = get(f"{ODDS_API}/events/{eid}/odds?apiKey={key}&regions=us&markets=player_anytime_td,player_1st_td,player_tds_over&oddsFormat=american", 60, headers=True)
                 doc = json.loads(raw)
-                books, first = parse_td(doc), parse_td(doc, "player_1st_td")
+                books, first, two = parse_td(doc), parse_td(doc, "player_1st_td"), parse_two(doc)
                 left = hd.get("x-requests-remaining")
                 if left is not None:
                     meta["left"] = int(float(left))
@@ -850,6 +888,10 @@ def remember_odds(sched, old, force=False):
                         rec["f"] = first
                     else:
                         rec["ftries"] = rec.get("ftries", 0) + 1
+                    if two:
+                        rec["t"] = two
+                    else:
+                        rec["ttries"] = rec.get("ttries", 0) + 1
                 else:
                     rec["tries"] = rec.get("tries", 0) + 1      # market not posted yet; try again next run
                 store[u["gid"]] = rec
@@ -866,7 +908,7 @@ def remember_odds(sched, old, force=False):
     return store
 
 
-def backfill(season, lead=60, go=False, limit=None, back=0, first=False):
+def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=False):
     """Closing-ish anytime-TD prices for this season's finished games, from The Odds API's historical endpoints (paid plans only).
 
     For each finished game without stored prices it asks for the snapshot `lead` minutes before kickoff. Cost: 10 requests per
@@ -881,7 +923,9 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False):
         store = json.load(open(ODDS, encoding="utf-8"))
     except Exception:
         store = {}
-    if first:      # first-touchdown prices for games that do not have them yet (and anytime too where that is missing)
+    if two:        # 2+ TD prices for games that do not have them yet
+        todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("t") and not (store.get(r.game_id) or {}).get("ttry")]
+    elif first:    # first-touchdown prices for games that do not have them yet (and anytime too where that is missing)
         todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("f") and not (store.get(r.game_id) or {}).get("ftry")]
     else:
         todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("b")]
@@ -920,6 +964,8 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False):
             try:
                 old_rec = store.get(r.game_id) or {}
                 mk = "player_anytime_td" if not first else "player_1st_td" if old_rec.get("b") else "player_anytime_td,player_1st_td"
+                if two:
+                    mk = "player_tds_over" if old_rec.get("b") else "player_anytime_td,player_tds_over"
                 raw, hd = get(f"{ODDS_API.replace('/v4/', '/v4/historical/')}/events/{eid}/odds?apiKey={key}&regions=us&markets={mk}"
                               f"&oddsFormat=american&date={stamp}", 60, headers=True)
             except urllib.error.HTTPError as e:
@@ -931,13 +977,17 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False):
             doc = json.loads(raw)
             books = parse_td(doc.get("data") or {})
             ftd = parse_td(doc.get("data") or {}, "player_1st_td") if first else {}
+            if two:
+                first, ftd = True, parse_two(doc.get("data") or {})      # stored below under "t" in place of "f"
             left = hd.get("x-requests-remaining")
             snap = doc.get("timestamp") or stamp
             at = datetime.fromisoformat(snap.replace("Z", "+00:00")).astimezone(ET).strftime("%Y-%m-%dT%H:%M")
             rec = dict(old_rec)
             if books and not rec.get("b"):
                 rec.update({"at": at, "b": books, "hist": 1})
-            if first:
+            if two:
+                rec.update({"t": ftd} if ftd else {"ttry": 1})
+            elif first:
                 rec.update({"f": ftd} if ftd else {"ftry": 1})      # ftry: asked once, market was not there
             if books or ftd or first:
                 store[r.game_id] = rec
