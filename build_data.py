@@ -521,9 +521,9 @@ def make(season=None, old=None):
            "model": model, "trk": trk, "feed": td_feed(pbp, d, pl, [season - 1, season])}
     note = None
     bf = os.environ.get("ODDS_BACKFILL", "").strip().lower()
-    if bf in ("1", "2", "3", "4", "true"):
+    if bf in ("1", "2", "3", "4", "5", "true"):
         try:
-            backfill(season, int(os.environ.get("ODDS_LEAD", "60")), True, int(os.environ.get("ODDS_BACKFILL_MAX", "0")) or None, back=1 if bf == "2" else 0, first=bf == "3", two=bf == "4")
+            backfill(season, int(os.environ.get("ODDS_LEAD", "60")), True, int(os.environ.get("ODDS_BACKFILL_MAX", "0")) or None, back=1 if bf in ("2", "5") else 0, first=bf == "3", two=bf in ("4", "5"))
         except SystemExit as e:
             note = str(e)
             print(note, file=sys.stderr)
