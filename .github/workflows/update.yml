@@ -13,7 +13,7 @@ on:
         description: "Load past prices for finished games (paid Odds API plan, 10 requests per game)"
         type: choice
         default: "no"
-        options: ["no", "this season", "this season and last season", "this season first TD", "this season 2+ TD"]
+        options: ["no", "this season", "this season and last season", "this season first TD", "this season 2+ TD", "this season and last season 2+ TD"]
   push:
     branches: [main]
     paths: ["index.html", "build_data.py", ".github/workflows/update.yml"]
@@ -49,7 +49,7 @@ jobs:
       - name: Build data and pull prices
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-          ODDS_BACKFILL: ${{ inputs.past_prices == 'this season' && '1' || inputs.past_prices == 'this season and last season' && '2' || inputs.past_prices == 'this season first TD' && '3' || inputs.past_prices == 'this season 2+ TD' && '4' || '' }}
+          ODDS_BACKFILL: ${{ inputs.past_prices == 'this season' && '1' || inputs.past_prices == 'this season and last season' && '2' || inputs.past_prices == 'this season first TD' && '3' || inputs.past_prices == 'this season 2+ TD' && '4' || inputs.past_prices == 'this season and last season 2+ TD' && '5' || '' }}
         run: python build_data.py --out data.json
       - name: Keep the price record
         run: |
