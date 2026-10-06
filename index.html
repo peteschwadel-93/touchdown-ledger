@@ -377,7 +377,7 @@ function vPicks(){
   if(!isLive)return h;
   /* board */
   var books=allBooks();
-  var list=rows.filter(function(r){return (S.pos==="all"||r.pos===S.pos)&&(S.game==="all"||r.g===S.game)&&(S.priced===5?r._twt:S.priced===4?r._ls:S.priced===3?r._top:S.priced===2?r._pick:r.p>=S.minp&&(!S.priced||r.b_pr))});
+  var list=rows.filter(function(r){return (S.pos==="all"||r.pos===S.pos)&&(S.game==="all"||r.g===S.game)&&(S.priced===6?(r._pick&&r.pos==="TE"):S.priced===5?r._twt:S.priced===4?r._ls:S.priced===3?r._top:S.priced===2?r._pick:r.p>=S.minp&&(!S.priced||r.b_pr))});
   var key={value:function(r){return r.b_ev==null?-9:r.b_ev},blend:function(r){return r.b_k==null?-9:r.b_k},likely:function(r){return r.p}}[S.sort];
   if(S.bsort){var bf=BC[S.bsort[0]][1],bd=S.bsort[1];list.sort(function(a,b){var x=bf(a),y=bf(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return (typeof x==="string"?x.localeCompare(y):x-y)*bd})}
   else list.sort(function(a,b){return key(b)-key(a)||b.p-a.p});
@@ -387,7 +387,7 @@ function vPicks(){
     '<label class="f">Position '+seg("seg-pos",[["all","All"],["RB","RB"],["WR","WR"],["TE","TE"],["QB","QB"]],S.pos)+"</label>"+
     '<label class="f" for="selGame">Game <select id="selGame"><option value="all">All games</option>'+games.map(function(g){return '<option value="'+g.gid+'"'+(S.game===g.gid?" selected":"")+">"+g.a+" @ "+g.h+"</option>"}).join("")+"</select></label>"+
     (books.length?
-    '<label class="f">Show '+seg("seg-priced",[[0,"All"],[1,"Priced"],[2,"Picks"],[3,"Top 8"],[4,"Long shots"],[5,"2+ TD"]],S.priced)+"</label>":"")+"</div></div>";
+    '<label class="f">Show '+seg("seg-priced",[[0,"All"],[1,"Priced"],[2,"Picks"],[3,"Top 8"],[6,"TE picks"],[4,"Long shots"],[5,"2+ TD"]],S.priced)+"</label>":"")+"</div></div>";
   h+='<p class="note">Click any column heading to sort by it. Open a row for the full working: team touchdowns, run/pass split, the player\'s share of each, recent usage, and a box for your own price. '+list.length+" players shown.</p>";
   h+='<div class="tw"><table class="board tf"><thead><tr>'+BC.map(function(c,i){return '<th tabindex="0" data-bs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(S.bsort&&S.bsort[0]===i?' aria-sort="'+(S.bsort[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+"</tr></thead><tbody>";
   if(!list.length)h+='<tr><td colspan="19" class="o">No players match these filters.</td></tr>';
@@ -581,6 +581,8 @@ function vTracker(){
     h+='<h3>The Picks rule, graded</h3><div class="tw"><table class="mini"><thead><tr><th></th><th class="n">Bets</th><th class="n">Won</th><th class="n">Hit rate</th><th class="n">Units</th><th class="n k">Return</th><th></th></tr></thead><tbody>'+
       line("<b>Top 8</b> · "+(S.twk?"this week":S.tseason),top8(pk),"The eight likeliest Ledger picks each week")+line("Top 8 · every stored game",top8(allPk),"Both seasons together")+
       line("<b>Ledger picks</b> · "+(S.twk?"this week":S.tseason),pk,"Chance 20%+, edge 3% to 25%")+line("Ledger picks · every stored game",allPk,"Both seasons together")+
+      line("<b>TE Ledger picks</b> · "+(S.twk?"this week":S.tseason),pk.filter(function(b){return b.r[6]==="TE"}),"Tight ends that pass the Picks rule. The strongest slice so far; on watch")+line("TE Ledger picks · every stored game",allPk.filter(function(b){return b.r[6]==="TE"}),"Both seasons together")+
+      line("Ledger picks that are not TEs · every stored game",allPk.filter(function(b){return b.r[6]!=="TE"}),"For comparison")+
       line("Long-shot tier · all · every stored game",gradeAll(all).filter(isLs),"Chance 10–25%, +400 to +900, positive edge. No longer picked: the top four went 0 for 19 this season. Use Show → Long shots on the board to browse the tier")+
       line("<b>2+ TDs</b> · four likeliest a week · "+(S.twk?"this week":S.tseason),top4two(gradeTwo(rows)),"The four highest chances at 15%+ with a price, whatever the edge. Experimental")+line("2+ TDs · four likeliest a week · every stored game",top4two(gradeTwo(all)),"Both seasons together")+line("2+ TDs · round robin by twos · "+(S.twk?"this week":S.tseason),rr2(top4two(gradeTwo(rows))),"Every pair of the week\'s picks from different games, one unit a pair. Loses most weeks, pays big when two hit")+
       line("2+ TDs · old value rule · every stored game",valueTwo(gradeTwo(all,1)),"For comparison: chance 20%+, edge −10% to +50%, best four by edge")+
