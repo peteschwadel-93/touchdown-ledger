@@ -1,73 +1,75 @@
 #!/usr/bin/env python3
-"""Build the data behind the Touchdown Ledger (NFL anytime-touchdown model) from nflverse play-by-play.
+"""Build data.json for the Tip-Off Ledger dashboard from NBA play-by-play.
+
+Two sources, same output:
+
+  python build_data.py --source github --season 2025 --out data.json
+      Downloads the season archive of NBA live play-by-play mirrored at
+      github.com/shufinskiy/nba_data (regular season + playoffs).
+
+  python build_data.py --source nba --season 2025 --out data.json
+      Calls the NBA's own live-data API (cdn.nba.com) game by game.
+      Run this on your own computer; it keeps a local cache in ./pbp_cache
+      so later runs only fetch games it has not seen.
+
+Add --html tipoff_ledger.html to write the fresh data straight into the
+standalone dashboard file, so you can just reopen it in your browser.
 
   python3 build_data.py --install
-      One-time setup. Installs what it needs, then the dashboard lives at http://localhost:8767,
-      starts when you log in and refreshes itself every few hours. Undo with --uninstall.
+      One-time setup. After this the dashboard lives at http://localhost:8765,
+      starts by itself whenever you log in, and pulls new games and the day's
+      schedule from the NBA API on its own every two hours. Bookmark the
+      address and you never need this script again. Undo with --uninstall.
 
-  python3 build_data.py --serve
-      Opens the dashboard at http://localhost:8767 with a working Refresh button. Keep
-      touchdown_ledger.html in the same folder as this script.
+  python build_data.py --serve
+      Opens the dashboard at http://localhost:8765 with a working Refresh
+      button. Keep tipoff_ledger.html in the same folder as this script and
+      leave the window running while you use the page. Each press pulls any
+      new finished games and the coming week's schedule from the NBA API and
+      reloads the numbers. Last season comes from the GitHub archive, so the
+      Picks tab has tip history on opening night.
 
-  python3 build_data.py --html touchdown_ledger.html
-      Rebuild once and write the fresh numbers into the dashboard file.
-
-  python3 build_data.py --backfill
-      Shows what it would cost to pull pre-kickoff prices for every finished game this season (The Odds API's
-      historical data, paid plans only). Add --yes to pull them. They land in odds.json and the Tracker grades them.
-
-Prices: put your key from the-odds-api.com in the ODDS_API_KEY environment variable, or in a file called
-odds_key.txt next to this script (the dashboard has a box that saves it there for you). Each game costs one
-request per pull; listing the games is free. Prices are kept in odds.json so past games can be graded.
-
-Data: github.com/nflverse (play-by-play, snap counts, weekly rosters, injury reports) and nfldata games.csv
-(schedule, closing spread and total). Everything is cached in ./nfl_cache.
+--season is the year the season starts (2025 = 2025-26). Left out, it is the
+season in progress, falling back to the previous one until games are played.
 """
-import argparse, json, math, os, re, shutil, socket, subprocess, sys, threading, time, unicodedata, urllib.error, urllib.request, webbrowser
+import argparse, io, json, math, os, re, shutil, socket, subprocess, sys, tarfile, threading, time, urllib.error, urllib.request, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 try:
-    import numpy as np, pandas as pd
-except ImportError:
-    np = pd = None
+    import pandas as pd
+except ImportError:  # --install adds it
+    pd = None
 
-REL = "https://github.com/nflverse/nflverse-data/releases/download/"
-GAMES = "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv"
-CACHE = "nfl_cache"
-POS = ["QB", "RB", "WR", "TE", "FB"]
+GH = "https://raw.githubusercontent.com/shufinskiy/nba_data/main/datasets/{name}.tar.xz"
+# The NBA serves the same files from two hosts. The first refuses some cloud servers (HTTP 403),
+# so each request falls back to the second.
+NBA_HOSTS = ("https://cdn.nba.com/static/json", "https://nba-prod-us-east-1-mediaops-stats.s3.amazonaws.com/NBA")
+NBA_SCHEDULE = "/staticData/scheduleLeagueV2.json"
+NBA_PBP = "/liveData/playbyplay/playbyplay_{gid}.json"
+NBA_BOX = "/liveData/boxscore/boxscore_{gid}.json"
+ESPN_INJ = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries"
+ESPN_ABBR = {"GS": "GSW", "NY": "NYK", "SA": "SAS", "NO": "NOP", "UTAH": "UTA", "WSH": "WAS"}
+UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.nba.com/", "Accept": "application/json"}
+COLS = {"gameId", "orderNumber", "period", "clock", "timeActual", "actionType", "subType", "descriptor",
+        "personId", "playerNameI", "teamTricode", "shotResult", "shotDistance", "scoreHome",
+        "jumpBallWonPersonId", "jumpBallLostPersonId", "jumpBallRecoverdPersonId", "assistPersonId"}
+N_SHOTS = 5            # attempts are kept per team until it has N field-goal attempts
+TIP_WINDOW = 690       # opening tip must be logged with >= 11:30 on the Q1 clock
 ET = ZoneInfo("America/New_York")
-UA = {"User-Agent": "Mozilla/5.0", "Accept": "*/*"}
-# model settings, chosen on a 2025 holdout (see the Model tab)
-HL, HLT, SM = 6, 6, 0.6          # half-life in games for players and teams; extra fade across an off-season
-K, KT, KD = 1.5, 6.0, 30.0       # shrinkage, in games, for player shares, team run/pass mix and the defence nudge
-PBP_COLS = ["game_id", "season", "week", "posteam", "defteam", "play_type", "yardline_100", "air_yards", "two_point_attempt",
-            "sack", "touchdown", "td_player_id", "rusher_player_id", "receiver_player_id", "passer_player_id", "pass_touchdown",
-            "play_id", "qtr", "fixed_drive", "time", "time_of_day", "td_team", "td_player_name", "rush_touchdown"]
-HTML = "touchdown_ledger.html"
-TAG = "atd-data"
-ODDS = "odds.json"
-ODDS_API = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl"
-TEAM_NAMES = {"Arizona Cardinals": "ARI", "Atlanta Falcons": "ATL", "Baltimore Ravens": "BAL", "Buffalo Bills": "BUF", "Carolina Panthers": "CAR",
-              "Chicago Bears": "CHI", "Cincinnati Bengals": "CIN", "Cleveland Browns": "CLE", "Dallas Cowboys": "DAL", "Denver Broncos": "DEN",
-              "Detroit Lions": "DET", "Green Bay Packers": "GB", "Houston Texans": "HOU", "Indianapolis Colts": "IND", "Jacksonville Jaguars": "JAX",
-              "Kansas City Chiefs": "KC", "Las Vegas Raiders": "LV", "Los Angeles Chargers": "LAC", "Los Angeles Rams": "LA", "Miami Dolphins": "MIA",
-              "Minnesota Vikings": "MIN", "New England Patriots": "NE", "New Orleans Saints": "NO", "New York Giants": "NYG", "New York Jets": "NYJ",
-              "Philadelphia Eagles": "PHI", "Pittsburgh Steelers": "PIT", "San Francisco 49ers": "SF", "Seattle Seahawks": "SEA",
-              "Tampa Bay Buccaneers": "TB", "Tennessee Titans": "TEN", "Washington Commanders": "WAS"}
 
 
-# ---------- fetching ----------
 def ssl_context():
+    """Python from python.org on a Mac ships without root certificates; use certifi's or the system's."""
     import ssl
     ctx = ssl.create_default_context()
     try:
         import certifi
         ctx.load_verify_locations(cafile=certifi.where())
     except Exception:
-        for path in (os.environ.get("SSL_CERT_FILE"), "/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt"):
-            if path and os.path.exists(path):
+        for path in ("/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt"):
+            if os.path.exists(path):
                 try:
                     ctx.load_verify_locations(cafile=path)
                 except Exception:
@@ -78,982 +80,923 @@ def ssl_context():
 CTX = None
 
 
-def get(url, timeout=180, headers=False):
+def get(url, timeout=60):
     global CTX
     CTX = CTX or ssl_context()
-    with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=timeout, context=CTX) as r:
-        return (r.read(), r.headers) if headers else r.read()
+    req = urllib.request.Request(url, headers=UA)
+    with urllib.request.urlopen(req, timeout=timeout, context=CTX) as r:
+        return r.read()
 
 
-def cached(name, url, fresh=False):
-    """A file from the cache folder; downloaded when missing, or again when fresh is set (current-season files)."""
-    os.makedirs(CACHE, exist_ok=True)
-    path = os.path.join(CACHE, name)
-    old = os.path.exists(path) and (time.time() - os.path.getmtime(path)) / 60
-    if old is False or (fresh and old > 20):
+# ---------- sources ----------
+def get_nba(path):
+    """Fetch an NBA data file, remembering whichever host answered."""
+    global NBA_HOSTS
+    err = None
+    for host in NBA_HOSTS:
         try:
-            raw = get(url)
-            with open(path + ".part", "wb") as f:
-                f.write(raw)
-            os.replace(path + ".part", path)
+            raw = get(host + path)
+            if host != NBA_HOSTS[0]:
+                NBA_HOSTS = (host,) + tuple(h for h in NBA_HOSTS if h != host)
+            return raw
         except Exception as e:
-            if not os.path.exists(path):
-                return None
-            print(f"kept cached {name}: {e}", file=sys.stderr)
-    return path
+            err = err or e
+    raise err
+
+
+def load_injuries():
+    """Current injury designations by team from ESPN, or None if the feed cannot be read."""
+    try:
+        data = json.loads(get(ESPN_INJ))
+        out = {}
+        for team in data.get("injuries", []):
+            for it in team.get("injuries", []):
+                ath = it.get("athlete") or {}
+                ab = (ath.get("team") or {}).get("abbreviation")
+                short = ath.get("shortName") or (f"{ath.get('firstName', '')[:1]}. {ath.get('lastName', '')}").strip()
+                if not ab or not short:
+                    continue
+                out.setdefault(ESPN_ABBR.get(ab, ab), []).append({
+                    "n": short, "f": ath.get("displayName") or short, "st": it.get("status") or "",
+                    "ty": (it.get("details") or {}).get("type") or "", "c": (it.get("shortComment") or "")[:200],
+                    "d": (it.get("date") or "")[:10]})
+        return out
+    except Exception as e:
+        print(f"injury feed unavailable: {e}", file=sys.stderr)
+        return None
+
+
+def lineup(gid):
+    """Starters and inactive players from the NBA box score, once it is posted shortly before tip."""
+    try:
+        game = json.loads(get_nba(NBA_BOX.format(gid=gid)))["game"]
+    except Exception:
+        return None
+    out = {}
+    for side in ("homeTeam", "awayTeam"):
+        t = game.get(side) or {}
+        ps = t.get("players") or []
+        st = [[int(p["personId"]), p.get("nameI") or p.get("name", ""), (p.get("position") or "").upper()] for p in ps if str(p.get("starter")) == "1"]
+        off = [[int(p["personId"]), p.get("nameI") or p.get("name", ""), p.get("notPlayingDescription") or ""]
+               for p in ps if p.get("status") == "INACTIVE"]
+        if (st or off) and t.get("teamTricode"):
+            out[t["teamTricode"]] = {"st": st, "out": off}
+    return out or None
+
+
+NBA_DAILY_LINEUPS = "https://stats.nba.com/js/data/leaders/00_daily_lineups_{ymd}.json"
+
+
+def daily_lineups(day):
+    """The NBA's own lineups page data for one day (YYYY-MM-DD): {gameId: {TEAM: (lineup, confirmed)}}.
+
+    Lists each team's five starters, marked Expected hours ahead and Confirmed once the team announces them,
+    which is earlier than the box score shows starters. Returns {} if the file cannot be read.
+    """
+    try:
+        req = urllib.request.Request(NBA_DAILY_LINEUPS.format(ymd=day.replace("-", "")),
+                                     headers={**UA, "Referer": "https://www.nba.com/", "Origin": "https://www.nba.com", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=30, context=CTX or ssl_context()) as r:
+            doc = json.loads(r.read())
+    except Exception as e:
+        print(f"daily lineups {day}: unavailable ({e})", file=sys.stderr, flush=True)
+        return {}
+    out = {}
+    for g in doc.get("games") or []:
+        lu = {}
+        for side in ("homeTeam", "awayTeam"):
+            t = g.get(side) or {}
+            st, off, ok = [], [], True
+            for p in t.get("players") or []:
+                nm = p.get("playerName") or f"{p.get('firstName', '')} {p.get('lastName', '')}".strip()
+                short = f"{p['firstName'][:1]}. {p['lastName']}" if p.get("firstName") and p.get("lastName") else nm
+                pos = (p.get("position") or "").upper()
+                if str(p.get("rosterStatus", "")).lower() == "inactive":
+                    off.append([int(p["personId"]), short, ""])
+                elif pos:
+                    st.append([int(p["personId"]), short, pos])
+                    ok = ok and str(p.get("lineupStatus", "")).lower() == "confirmed"
+            if t.get("teamAbbreviation") and len(st) == 5:
+                lu[t["teamAbbreviation"]] = ({"st": st, "out": off}, ok)
+        if lu:
+            out[str(g.get("gameId", ""))] = lu
+    return out
+
+
+def load_github(season):
+    frames = []
+    for name, po in ((f"cdnnba_{season}", 0), (f"cdnnba_po_{season}", 1)):
+        local = f"{name}.csv"
+        if not os.path.exists(local):
+            try:
+                raw = get(GH.format(name=name), timeout=600)
+            except Exception as e:  # playoffs file does not exist until the playoffs start
+                print(f"skip {name}: {e}", file=sys.stderr)
+                continue
+            with tarfile.open(fileobj=io.BytesIO(raw), mode="r:xz") as t:
+                t.extractall(".")
+        df = pd.read_csv(local, low_memory=False, usecols=lambda c: c in COLS)
+        df["po"] = po
+        df["ssn"] = season
+        frames.append(df)
+    if not frames:
+        raise RuntimeError(f"No play-by-play archive found for the {season}-{str(season + 1)[2:]} season")
+    return pd.concat(frames, ignore_index=True)
+
+
+def load_nba(season, cache="pbp_cache"):
+    """Returns (play-by-play of finished games or None, games scheduled over the next week)."""
+    os.makedirs(cache, exist_ok=True)
+    try:
+        sched = json.loads(get_nba(NBA_SCHEDULE))["leagueSchedule"]
+    except Exception as e:
+        raise RuntimeError(f"Could not reach the NBA schedule ({e})")
+    yy = str(season)[2:]
+    today = datetime.now(ET).date()
+    rows, upcoming = [], []
+    for day in sched["gameDates"]:
+        for g in day["games"]:
+            gid = str(g.get("gameId", ""))
+            status = g.get("gameStatus")
+            if status != 3:
+                try:  # not final yet: keep it for the Picks tab if it tips within a week
+                    when = pd.to_datetime(g.get("gameDateTimeUTC"), utc=True).tz_convert(ET)
+                    ahead = (when.date() - today).days
+                    if 0 <= ahead <= 7:
+                        upcoming.append({"d": when.strftime("%Y-%m-%d"), "t": when.strftime("%-I:%M %p ET") if os.name != "nt" else when.strftime("%I:%M %p ET").lstrip("0"),
+                                         "h": g["homeTeam"]["teamTricode"], "a": g["awayTeam"]["teamTricode"],
+                                         "pre": 1 if gid[:3] == "001" else 0, "ts": when.isoformat(), "gid": gid})
+                        if status == 2:
+                            upcoming[-1]["lv"] = 1
+                except Exception:
+                    pass
+                if status != 2:
+                    continue
+            # 002 = regular season, 004 = playoffs, 005 = play-in
+            if gid[:3] not in ("002", "004", "005") or gid[3:5] != yy:
+                continue
+            path = os.path.join(cache, f"{gid}.json")
+            if status == 2:  # in progress: read what has happened so far, never cache it
+                try:
+                    actions = json.loads(get_nba(NBA_PBP.format(gid=gid)))["game"]["actions"]
+                except Exception:
+                    continue
+            else:
+                if not os.path.exists(path):
+                    try:
+                        raw = get_nba(NBA_PBP.format(gid=gid))
+                    except Exception as e:
+                        print(f"skip {gid}: {e}", file=sys.stderr)
+                        continue
+                    with open(path, "wb") as f:
+                        f.write(raw)
+                    time.sleep(0.2)
+                with open(path) as f:
+                    actions = json.load(f)["game"]["actions"]
+            for act in actions:
+                row = {k: v for k, v in act.items() if k in COLS}
+                row["gameId"] = int(gid)
+                row["po"] = 0 if gid[:3] == "002" else 1
+                row["ssn"] = season
+                row["live"] = 1 if status == 2 else 0
+                rows.append(row)
+    upcoming.sort(key=lambda x: x["ts"])
+    now = datetime.now(ET)
+    daily = {}
+    for u in upcoming:
+        # Starters: the NBA's lineups page first (confirmed there as soon as a team announces), then the box score,
+        # which shows them from about half an hour before tip. Looked for from three hours out; each attempt is logged.
+        mins = (datetime.fromisoformat(u["ts"]) - now).total_seconds() / 60
+        if mins <= 180:
+            if u["d"] not in daily:
+                daily[u["d"]] = daily_lineups(u["d"])
+            note = []
+            found = daily[u["d"]].get(u["gid"]) or {}
+            lu = {t: x[0] for t, x in found.items() if x[1]}
+            ex = {t: x[0] for t, x in found.items() if not x[1]}
+            note.append("lineups page: " + (", ".join(f"{t} {'confirmed' if x[1] else 'expected'}" for t, x in found.items()) or "nothing"))
+            if len(lu) < 2 and mins <= 90:
+                box = lineup(u["gid"]) or {}
+                got = [t for t, x in box.items() if len(x.get("st", [])) >= 5]
+                for t in got:
+                    lu.setdefault(t, box[t])
+                    ex.pop(t, None)
+                for t, x in box.items():  # the box score's inactive list is the fuller one
+                    tgt = lu.get(t) or ex.get(t)
+                    if tgt is not None and x.get("out"):
+                        tgt["out"] = x["out"]
+                note.append("box score: " + (("starters for " + ", ".join(got)) if got else ("no starters yet" if box else "not available")))
+            if lu:
+                u["lu"] = lu
+            if ex:
+                u["ex"] = ex
+            print(f"lineup {u['a']} @ {u['h']} ({mins:+.0f} min to tip): " + "; ".join(note), flush=True)
+        del u["gid"]
+    return (pd.DataFrame(rows) if rows else None), upcoming
+
+
+# ---------- transform ----------
+def clock_s(c):
+    # "PT11M56.00S" -> seconds left in the period
+    m, s = c[2:-1].split("M")
+    return int(m) * 60 + float(s)
+
+
+def pid(v):
+    return int(v) if pd.notna(v) and int(v) > 0 else None
+
+
+def threes_box(g, home, away):
+    """Per team, every player who appeared: [personId, threes attempted, threes made, minutes x10, rebounds, assists].
+
+    Minutes come from the substitutions: a player whose first event in a period is anything but coming on was on
+    the floor from its start, and anyone still on at the end played to the buzzer. Game totals land on 240 a side.
+    """
+    secs, team = {}, {}
+    for per, p in g.groupby("period", sort=True):
+        plen = 720.0 if per <= 4 else 300.0
+        on, seen = {}, set()
+        for who, tm, act, sub, clock in zip(p.personId, p.teamTricode, p.actionType, p.subType, p.clock):
+            if not who or who != who or who <= 0:
+                continue
+            who = int(who)
+            if isinstance(tm, str):
+                team[who] = tm
+            if act == "substitution":
+                left = clock_s(clock)
+                if sub == "out":
+                    start = on.pop(who, None)
+                    if start is None and who not in seen:
+                        start = plen
+                    if start is not None:
+                        secs[who] = secs.get(who, 0) + max(start - left, 0)
+                elif sub == "in":
+                    on[who] = left
+            elif who not in seen and who not in on:
+                on[who] = plen
+            seen.add(who)
+        for who, start in on.items():
+            secs[who] = secs.get(who, 0) + start
+    t3 = g[g.actionType == "3pt"]
+    att = t3.groupby("personId").size().to_dict()
+    made = t3[t3.shotResult == "Made"].groupby("personId").size().to_dict()
+    reb = g[g.actionType == "rebound"].groupby("personId").size().to_dict()   # team rebounds carry no player and drop out below
+    ast = {}
+    if "assistPersonId" in g.columns:  # the passer is named on the made shot
+        ap = pd.to_numeric(g["assistPersonId"], errors="coerce")
+        ast = ap[ap > 0].astype(int).value_counts().to_dict()
+    box = {home: [], away: []}
+    for who, sc in secs.items():
+        if team.get(who) in box and sc > 0:
+            box[team[who]].append([who, int(att.get(who, 0)), int(made.get(who, 0)), int(round(sc / 6)), int(reb.get(who, 0)), int(ast.get(who, 0))])
+    for t in box:
+        box[t].sort(key=lambda x: -x[3])
+    return box
+
+
+def build(df):
+    for col in ("jumpBallWonPersonId", "jumpBallLostPersonId", "jumpBallRecoverdPersonId",
+                "shotDistance", "descriptor", "subType", "shotResult", "teamTricode", "playerNameI"):
+        if col not in df.columns:
+            df[col] = None
+    df = df.sort_values(["gameId", "orderNumber"], kind="stable")
+    names = (df[df.personId > 0].dropna(subset=["playerNameI"])
+             .drop_duplicates("personId", keep="last").set_index("personId").playerNameI.to_dict())
+    games = []
+    for gid, g in df.groupby("gameId", sort=True):
+        teams = [t for t in g.teamTricode.dropna().unique()]
+        if len(teams) != 2:
+            continue
+        q1 = g[g.period == 1]
+        if q1.empty:
+            continue
+        # home team: the side whose scoreHome moves on a made basket
+        home = None
+        prev_h = 0
+        for r in g[g.shotResult == "Made"].itertuples():
+            h = int(r.scoreHome)
+            home = r.teamTricode if h > prev_h else [t for t in teams if t != r.teamTricode][0]
+            break
+        if home is None:
+            continue
+        away = [t for t in teams if t != home][0]
+        ts = pd.to_datetime(q1.timeActual.iloc[0], utc=True).tz_convert(ET)
+        team_of = (g[g.personId > 0].dropna(subset=["teamTricode"])
+                   .drop_duplicates("personId").set_index("personId").teamTricode.to_dict())
+
+        # --- opening tip
+        tip = None
+        q1 = q1.assign(sec=q1.clock.map(clock_s))
+        jb = q1[(q1.actionType == "jumpball") & (q1.sec >= TIP_WINDOW)]
+        if len(jb):
+            r = jb.iloc[0]
+            w, l = pid(r.jumpBallWonPersonId), pid(r.jumpBallLostPersonId)
+            pos = r.teamTricode if pd.notna(r.teamTricode) else team_of.get(w)
+            wt = team_of.get(w) or pos
+            lt = team_of.get(l) or [t for t in teams if t != wt][0]
+            if wt == lt:  # a jumper with no other logged action; fall back to possession
+                wt, lt = pos, [t for t in teams if t != pos][0]
+            tip = {"w": w, "l": l, "wt": wt, "lt": lt, "pos": pos, "rec": pid(r.jumpBallRecoverdPersonId)}
+        else:
+            v = q1[(q1.actionType == "violation") & (q1.subType == "jumpball") & (q1.sec >= TIP_WINDOW)]
+            if len(v):  # jump-ball violation: the other team is awarded the ball
+                bad = v.iloc[0].teamTricode
+                tip = {"w": None, "l": pid(v.iloc[0].personId), "wt": None, "lt": bad,
+                       "pos": [t for t in teams if t != bad][0], "rec": None, "viol": 1}
+
+        # --- starters: first Q1 appearance is not a "SUB in"
+        starters = {t: [] for t in teams}
+        seen = set()
+        for r in q1[q1.personId > 0].itertuples():
+            if r.personId in seen or pd.isna(r.teamTricode) or r.personId not in names:  # coaches carry an id but no name
+                continue
+            seen.add(r.personId)
+            if not (r.actionType == "substitution" and r.subType == "in"):
+                starters[r.teamTricode].append(int(r.personId))
+
+        # --- first attempts per team, in game order: field goals and free-throw trips.
+        # entry: [player, pts (1 = free throws), made, distance, shot type, seconds elapsed,
+        #         game order, descriptor, tries in the trip, and-one result]
+        att = g[g.actionType.isin(["2pt", "3pt", "freethrow"]) & (g.personId > 0)]
+        shots = {t: [] for t in teams}
+        nfg = {t: 0 for t in teams}
+        order = 0
+        first_fg = first_pts = None
+        for r in att.itertuples():
+            t = r.teamTricode
+            if t not in shots:
+                continue
+            el = int((r.period - 1) * 720 + 720 - clock_s(r.clock))
+            made = 1 if r.shotResult == "Made" else 0
+            lst = shots[t]
+            if r.actionType == "freethrow":
+                last = lst[-1] if lst else None
+                same = last is not None and last[0] == int(r.personId) and last[5] == el
+                if same and last[1] == 1:            # another free throw in the same trip
+                    last[2] += made; last[8] += 1
+                elif same and last[2] and str(r.subType).strip() == "1 of 1":   # and-one
+                    last[9] = made
+                elif nfg[t] < N_SHOTS or first_fg is None:
+                    order += 1
+                    kind = r.descriptor if pd.notna(r.descriptor) else None
+                    lst.append([int(r.personId), 1, made, None, "Free Throw", el, order, kind, 1, None])
+                if made and first_pts is None:
+                    first_pts = [int(r.personId), t]
+            else:
+                order += 1
+                if made and first_fg is None:
+                    first_fg = [int(r.personId), t]
+                if made and first_pts is None:
+                    first_pts = [int(r.personId), t]
+                if nfg[t] < N_SHOTS or first_fg is None or (made and first_fg == [int(r.personId), t] and nfg[t] >= N_SHOTS):
+                    nfg[t] += 1
+                    dist = int(round(r.shotDistance)) if pd.notna(r.shotDistance) else None
+                    lst.append([int(r.personId), 3 if r.actionType == "3pt" else 2, made, dist, r.subType,
+                                el, order, r.descriptor if pd.notna(r.descriptor) else None, 1, None])
+            if first_fg and all(n >= N_SHOTS for n in nfg.values()) and el > max(x[-1][5] for x in shots.values()):
+                break
+        games.append({"id": int(gid), "d": ts.strftime("%Y-%m-%d"), "t": ts.strftime("%I:%M %p ET").lstrip("0"), "po": int(g.po.iloc[0]), "s": int(g.ssn.iloc[0]),
+                      "h": home, "a": away, "tip": tip, "fs": shots, "st": starters, "fb": first_fg, "fp": first_pts,
+                      "b3": threes_box(g, home, away)})
+        if "live" in g.columns and g.live.iloc[0] == 1:
+            games[-1]["lv"] = 1
+    used = set()
+    for gm in games:
+        t = gm["tip"] or {}
+        used.update(p for p in (t.get("w"), t.get("l"), t.get("rec")) if p)
+        used.update(p for lst in gm["st"].values() for p in lst)
+        used.update(s[0] for lst in gm["fs"].values() for s in lst)
+        used.update(x[0] for lst in (gm.get("b3") or {}).values() for x in lst)
+        for k in ("fb", "fp"):
+            if gm[k]:
+                used.add(gm[k][0])
+    return games, {str(p): names.get(p, f"#{p}") for p in sorted(used)}
 
 
 def current_season():
     now = datetime.now(ET)
-    return now.year if now.month >= 8 else now.year - 1
+    return now.year if now.month >= 10 else now.year - 1
 
 
-def load(season):
-    years = [season - 3, season - 2, season - 1, season]
-    pbp, sn, ros = [], [], []
-    for y in years:
-        cur = y == season
-        p = cached(f"pbp_{y}.parquet", f"{REL}pbp/play_by_play_{y}.parquet", cur)
-        if p:
-            pbp.append(pd.read_parquet(p, columns=PBP_COLS))
-        p = cached(f"snaps_{y}.parquet", f"{REL}snap_counts/snap_counts_{y}.parquet", cur)
-        if p:
-            sn.append(pd.read_parquet(p))
-        p = cached(f"roster_{y}.parquet", f"{REL}weekly_rosters/roster_weekly_{y}.parquet", cur)
-        if p:
-            ros.append(pd.read_parquet(p, columns=["season", "week", "team", "position", "status", "full_name", "gsis_id", "pfr_id", "espn_id"]))
-    if not pbp:
-        raise RuntimeError("Could not download nflverse play-by-play")
-    g = pd.read_csv(cached("games.csv", GAMES, True))
-    inj = None
-    p = cached(f"inj_{season}.parquet", f"{REL}injuries/injuries_{season}.parquet", True)
-    if p:
-        try:
-            inj = pd.read_parquet(p)
-        except Exception:
-            pass
-    pl = cached("players.parquet", f"{REL}players/players.parquet")
-    pl = pd.read_parquet(pl, columns=["gsis_id", "pfr_id", "display_name"]) if pl else None
-    return pd.concat(pbp, ignore_index=True), pd.concat(sn, ignore_index=True), pd.concat(ros, ignore_index=True), g[g.season.isin(years)].copy(), inj, pl
+def label(yr):
+    return f"{yr}-{str(yr + 1)[2:]}"
 
 
-# ---------- expected touchdowns per play ----------
-def ybin(y):
-    y = int(y)
-    return y if y <= 10 else 13 if y <= 15 else 18 if y <= 20 else 25 if y <= 30 else 40 if y <= 50 else 75
+FLAGS = "flags.json"
+ODDS = "odds.json"
+PICKS = "picks.json"
+ODDS_API = "https://api.the-odds-api.com/v4/sports/basketball_nba"
+TEAM_NAMES = {"Atlanta Hawks": "ATL", "Boston Celtics": "BOS", "Brooklyn Nets": "BKN", "Charlotte Hornets": "CHA", "Chicago Bulls": "CHI",
+              "Cleveland Cavaliers": "CLE", "Dallas Mavericks": "DAL", "Denver Nuggets": "DEN", "Detroit Pistons": "DET",
+              "Golden State Warriors": "GSW", "Houston Rockets": "HOU", "Indiana Pacers": "IND", "Los Angeles Clippers": "LAC",
+              "LA Clippers": "LAC", "Los Angeles Lakers": "LAL", "Memphis Grizzlies": "MEM", "Miami Heat": "MIA", "Milwaukee Bucks": "MIL",
+              "Minnesota Timberwolves": "MIN", "New Orleans Pelicans": "NOP", "New York Knicks": "NYK", "Oklahoma City Thunder": "OKC",
+              "Orlando Magic": "ORL", "Philadelphia 76ers": "PHI", "Phoenix Suns": "PHX", "Portland Trail Blazers": "POR",
+              "Sacramento Kings": "SAC", "San Antonio Spurs": "SAS", "Toronto Raptors": "TOR", "Utah Jazz": "UTA", "Washington Wizards": "WAS"}
 
 
-def tbin(y):
-    y = int(y)
-    return 3 if y <= 5 else 8 if y <= 10 else 15 if y <= 20 else 30 if y <= 40 else 70
-
-
-def player_games(pbp, sn, ros, games, pl):
-    op = pbp[(pbp.two_point_attempt != 1) & pbp.play_type.isin(["run", "pass"]) & pbp.posteam.notna() & pbp.yardline_100.notna()]
-    rush = op[(op.play_type == "run") & op.rusher_player_id.notna()].copy()
-    tgt = op[(op.play_type == "pass") & (op.sack != 1) & op.receiver_player_id.notna()].copy()
-    rush["td"] = ((rush.touchdown == 1) & (rush.td_player_id == rush.rusher_player_id)).astype(int)
-    tgt["td"] = ((tgt.touchdown == 1) & (tgt.td_player_id == tgt.receiver_player_id)).astype(int)
-    tgt["ez"] = (tgt.air_yards >= tgt.yardline_100).astype(int)
-    rush["yb"] = rush.yardline_100.map(ybin)
-    tgt["tb"] = tgt.yardline_100.map(tbin)
-    RT = rush.groupby("yb").td.agg(["mean", "size"])
-    TT = tgt.groupby(["ez", "tb"]).td.agg(["mean", "size"])
-    rush["x"] = rush.yb.map(RT["mean"])
-    tgt["x"] = [TT["mean"][(e, b)] for e, b in zip(tgt.ez, tgt.tb)]
-    r = rush.groupby(["game_id", "posteam", "rusher_player_id"]).agg(
-        car=("x", "size"), rx=("x", "sum"), rtd=("td", "sum"), i5=("yardline_100", lambda s: int((s <= 5).sum())),
-        rzc=("yardline_100", lambda s: int((s <= 20).sum()))).reset_index().rename(columns={"rusher_player_id": "pid"})
-    t = tgt.groupby(["game_id", "posteam", "receiver_player_id"]).agg(
-        tg=("x", "size"), tx=("x", "sum"), ctd=("td", "sum"), ez=("ez", "sum"),
-        rzt=("yardline_100", lambda s: int((s <= 20).sum()))).reset_index().rename(columns={"receiver_player_id": "pid"})
-    pg = r.merge(t, on=["game_id", "posteam", "pid"], how="outer").fillna(0)
-    # the bet settles on any touchdown the player scores himself (rushing, receiving, return); throwing one does not count
-    td = pbp[(pbp.touchdown == 1) & pbp.td_player_id.notna() & (pbp.two_point_attempt != 1)]
-    td = td[~((td.pass_touchdown == 1) & (td.td_player_id == td.passer_player_id))]
-    a = td.groupby(["game_id", "td_player_id"]).size().rename("tds").reset_index().rename(columns={"td_player_id": "pid"})
-    first = td.sort_values(["game_id", "play_id"]).drop_duplicates("game_id").set_index("game_id").td_player_id.to_dict()
-    idmap = ros.dropna(subset=["pfr_id", "gsis_id"]).drop_duplicates("pfr_id").set_index("pfr_id").gsis_id
-    sn = sn.copy()
-    sn["pid"] = sn.pfr_player_id.map(idmap)
-    if pl is not None:
-        sn["pid"] = sn.pid.fillna(sn.pfr_player_id.map(pl.dropna(subset=["pfr_id", "gsis_id"]).drop_duplicates("pfr_id").set_index("pfr_id").gsis_id))
-    # position from the roster where known: the snap file labels some running backs "HB"
-    rpos = ros.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id", keep="last").set_index("gsis_id").position
-    sn["position"] = sn.pid.map(rpos).where(lambda x: x.isin(POS), sn.position.replace({"HB": "RB"}))
-    sn = sn[sn.position.isin(POS) & (sn.offense_snaps > 0) & sn.pid.notna()][["game_id", "team", "pid", "player", "position", "offense_pct"]]
-    sn = sn.rename(columns={"team": "posteam", "position": "pos", "offense_pct": "snp", "player": "name"})
-    sn["posteam"] = sn.posteam.replace({"LAR": "LA"})
-    sn = sn.drop_duplicates(["game_id", "pid"])
-    d = sn.merge(pg, on=["game_id", "posteam", "pid"], how="left").merge(a, on=["game_id", "pid"], how="left").fillna(0)
-    d["y"] = (d.tds > 0).astype(int)
-    d["ftd"] = (d.game_id.map(first) == d.pid).astype(int)
-    g = games.set_index("game_id")
-    d = d[d.game_id.isin(g.index)]
-    for c in ("season", "week", "gameday"):
-        d[c] = d.game_id.map(g[c])
-    home = d.game_id.map(g.home_team) == d.posteam
-    sp, tot = d.game_id.map(g.spread_line), d.game_id.map(g.total_line)
-    d["imp"] = np.where(home, tot / 2 + sp / 2, tot / 2 - sp / 2)      # spread_line > 0 means the home team is favoured
-    d["opp"] = np.where(home, d.game_id.map(g.away_team), d.game_id.map(g.home_team))
-    tm = d.groupby(["game_id", "posteam"]).agg(trx=("rx", "sum"), ttx=("tx", "sum"), trtd=("rtd", "sum"), tctd=("ctd", "sum")).reset_index()
-    d = d.merge(tm, on=["game_id", "posteam"]).sort_values(["gameday", "game_id"]).reset_index(drop=True)
-    return d, RT, TT
-
-
-def td_feed(pbp, d, pl, seasons):
-    """Every touchdown in the official play-by-play, in order: [season, week, game, scorer, team, position, quarter, clock, type, time of day]."""
-    td = pbp[(pbp.touchdown == 1) & pbp.td_player_id.notna() & (pbp.two_point_attempt != 1) & pbp.season.isin(seasons)]
-    td = td[~((td.pass_touchdown == 1) & (td.td_player_id == td.passer_player_id))].sort_values(["season", "week", "game_id", "play_id"])
-    who = d.drop_duplicates(["game_id", "pid"]).set_index(["game_id", "pid"])[["name", "pos"]]
-    full = pl.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").set_index("gsis_id").display_name.to_dict() if pl is not None else {}
-    last = d.drop_duplicates("pid", keep="last").set_index("pid").name.to_dict()
-    out = []
-    for r in td.itertuples():
-        k = (r.game_id, r.td_player_id)
-        name, pos = (who.name[k], who.pos[k]) if k in who.index else (last.get(r.td_player_id) or full.get(r.td_player_id) or r.td_player_name or "", "")
-        kind = "Rush" if r.rush_touchdown == 1 and r.td_player_id == r.rusher_player_id else \
-               "Rec" if r.pass_touchdown == 1 and r.td_player_id == r.receiver_player_id else "Return"
-        clock = str(r.time or "")
-        clock = clock[1:] if clock.startswith("0") and len(clock) == 5 else clock
-        tod = r.time_of_day if isinstance(r.time_of_day, str) else ""
-        team = r.td_team if isinstance(r.td_team, str) else ""
-        out.append([int(r.season), int(r.week), r.game_id, name, team, pos, int(r.qtr) if r.qtr == r.qtr else 0, clock, kind, tod])
-    return out
-
-
-# ---------- features ----------
-PCOLS = ["rx", "tx", "trx", "ttx", "tds", "car", "tg", "i5", "ez", "snp", "rzc", "rzt", "y"]
-TCOLS = ["trx", "ttx", "trtd", "tctd"]
-
-
-def decayed(df, key, cols, hl, final=False):
-    """Recency-weighted sums of cols over each entity's EARLIER games (weight halves every hl games, and fades across seasons).
-    final=True returns {entity: sums after its last game} instead, for projecting the next game."""
-    out = np.zeros((len(df), len(cols) + 1))
-    dec = 0.5 ** (1 / hl)
-    V, S = df[cols].to_numpy(float), df.season.to_numpy()
-    end = {}
-    for k, idx in df.groupby(key, sort=False).indices.items():
-        acc, last = np.zeros(len(cols) + 1), None
-        for i in idx:
-            if last is not None and S[i] != last:
-                acc = acc * SM
-            out[i] = acc
-            acc = acc * dec + np.append(V[i], 1.0)
-            last = S[i]
-        end[k] = (acc, last)
-    return end if final else out
-
-
-def team_games(d):
-    return d.groupby(["game_id", "posteam", "opp", "season", "gameday"], sort=False).agg(
-        trx=("trx", "first"), ttx=("ttx", "first"), trtd=("trtd", "first"), tctd=("tctd", "first"),
-        imp=("imp", "first")).reset_index().sort_values(["gameday", "game_id"]).reset_index(drop=True)
-
-
-def add_history(d):
-    d = d.copy()
-    A = decayed(d, "pid", PCOLS, HL)
-    for j, c in enumerate(PCOLS):
-        d["p_" + c] = A[:, j]
-    d["n"] = A[:, -1]
-    tg = team_games(d)
-    O, Df = decayed(tg, "posteam", TCOLS, HLT), decayed(tg, "opp", TCOLS, HLT)
-    for j, c in enumerate(TCOLS):
-        tg["o_" + c], tg["d_" + c] = O[:, j], Df[:, j]
-    tg["o_n"], tg["d_n"] = O[:, -1], Df[:, -1]
-    return d.merge(tg[["game_id", "posteam"] + [c for c in tg.columns if c[:2] in ("o_", "d_")]], on=["game_id", "posteam"])
-
-
-def structural(d, lg, pri, tfit):
-    """Expected touchdowns for each player: team TDs x (run part x his share of rushing chances + pass part x his share of receiving chances).
-    Shares are his slice of the team's expected touchdowns (every carry and target weighted by how often it scores from that spot),
-    renormalised over the players dressed for the game."""
-    d = d.copy()
-    pr, pt = d.pos.map(pri["r"]).fillna(0) * 0.6, d.pos.map(pri["t"]).fillna(0) * 0.6
-    d["rsh"] = (d.p_rx + K * lg["rx"] * pr) / (d.p_trx + K * lg["rx"])
-    d["tsh"] = (d.p_tx + K * lg["tx"] * pt) / (d.p_ttx + K * lg["tx"])
-    d["snw"] = (d.p_snp + 0.25) / (d.n + 1.0)
-    grp = d.groupby(["game_id", "posteam"])
-    d["rshn"], d["tshn"] = d.rsh / grp.rsh.transform("sum"), d.tsh / grp.tsh.transform("sum")
-    d["T"] = np.clip(tfit[0] + tfit[1] * d.imp, 0.5, None)
-    o_r, o_t = (d.o_trx + KT * lg["rx"]) / (d.o_n + KT), (d.o_ttx + KT * lg["tx"]) / (d.o_n + KT)
-    d["dr"] = (d.d_trtd + KD * lg["rx"]) / (d.d_n + KD) / lg["rx"]
-    d["dt"] = (d.d_tctd + KD * lg["tx"]) / (d.d_n + KD) / lg["tx"]
-    rr, tt = o_r * d.dr, o_t * d.dt
-    d["split"] = rr / (rr + tt)
-    d["lam_r"], d["lam_t"] = d["T"] * d.split * d.rshn, d["T"] * (1 - d.split) * d.tshn
-    d["lam"] = d.lam_r + d.lam_t
-    return d
-
-
-XC = ["ll", "isQB", "isRB", "isTE", "snw"]
-
-
-def design(s):
-    return np.c_[np.log(s.lam.clip(1e-4)), (s.pos == "QB").astype(int), (s.pos == "RB").astype(int), (s.pos == "TE").astype(int), s.snw]
-
-
-def fit_logit(X, y, iters=60, l2=1e-3):
-    """Plain logistic regression by Newton's method (no scikit-learn needed)."""
-    X1 = np.c_[np.ones(len(X)), X]
-    w = np.zeros(X1.shape[1])
-    for _ in range(iters):
-        p = 1 / (1 + np.exp(-X1 @ w))
-        H = (X1 * (p * (1 - p))[:, None]).T @ X1 + l2 * np.eye(len(w))
-        step = np.linalg.solve(H, X1.T @ (y - p) - l2 * w)
-        w += step
-        if np.abs(step).max() < 1e-8:
-            break
-    return w
-
-
-def predict(w, X):
-    return 1 / (1 + np.exp(-(np.c_[np.ones(len(X)), X] @ w)))
-
-
-def scores(y, p):
-    p = np.clip(p, 1e-6, 1 - 1e-6)
-    y = np.asarray(y, float)
-    order = np.argsort(p)
-    r = np.empty(len(p)); r[order] = np.arange(1, len(p) + 1)
-    n1 = y.sum(); n0 = len(y) - n1
-    auc = (r[y == 1].sum() - n1 * (n1 + 1) / 2) / (n1 * n0) if n1 and n0 else None
-    return {"n": int(len(y)), "ll": round(float(-(y * np.log(p) + (1 - y) * np.log(1 - p)).mean()), 4),
-            "brier": round(float(((p - y) ** 2).mean()), 4), "auc": round(float(auc), 3) if auc else None,
-            "pred": round(float(p.mean()), 4), "hit": round(float(y.mean()), 4)}
-
-
-def r3(x, n=3):
-    return None if x is None or (isinstance(x, float) and np.isnan(x)) else round(float(x), n)
-
-
-def norm_name(s):
-    s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode().lower()
-    s = re.sub(r"[.'’`]", "", s)
-    s = re.sub(r"\b(jr|sr|ii|iii|iv|v)\b", "", s)
-    return re.sub(r"[^a-z]+", " ", s).strip()
-
-
-# ---------- the build ----------
-def make(season=None, old=None):
-    season = season or current_season()
-    pbp, sn, ros, games, inj, pl = load(season)
-    d, RT, TT = player_games(pbp, sn, ros, games, pl)
-    if d.empty:
-        raise RuntimeError("No games found in the play-by-play")
-    lg = {"rx": float(d.groupby(["game_id", "posteam"]).trx.first().mean()), "tx": float(d.groupby(["game_id", "posteam"]).ttx.first().mean())}
-    pri = {"r": (d.groupby("pos").rx.sum() / d.groupby("pos").trx.sum()).to_dict(), "t": (d.groupby("pos").tx.sum() / d.groupby("pos").ttx.sum()).to_dict()}
-    tg = team_games(d)
-    tg = tg[tg.imp.notna()]
-    b = np.polyfit(tg.imp, tg.trtd + tg.tctd, 1)
-    tfit = (float(b[1]), float(b[0]))
-    h = add_history(d)
-    s = structural(h, lg, pri, tfit)
-    seasons = sorted(s.season.unique())
-    first = seasons[0]
-    s = s[(s.season > first) | (s.week > 3)]     # the first weeks of the earliest season have no history behind them
-    s = s[s.imp.notna()]
-    # holdout: fit on everything before last season, score last season
-    prev = season - 1
-    tr, te = s[s.season < prev], s[s.season == prev]
-    model = {"tfit": [r3(tfit[0]), r3(tfit[1], 4)], "lg": {k: r3(v) for k, v in lg.items()}, "hl": HL, "sm": SM, "k": K, "kd": KD,
-             "rush": [[int(i), r3(r["mean"]), int(r["size"])] for i, r in RT.iterrows()],
-             "tgt": [[int(i[0]), int(i[1]), r3(r["mean"]), int(r["size"])] for i, r in TT.iterrows()], "pos": {}}
-    trk = []
-    row = lambda r: [int(r.season), int(r.week), r.game_id, r.name, r.posteam, r.opp, r.pos, r3(r.p), int(r.y), int(r.tds), r3(r.pf), int(r.ftd)]
-    fc = float(s.groupby("game_id").ftd.sum().mean())
-
-    def with_first(z):      # each player's slice of the game's scoring, scaled to how often the first TD goes to a listed player
-        rate = -np.log(1 - z.p)
-        return z.assign(pf=rate / rate.groupby(z.game_id).transform("sum") * fc)
-    if len(tr) > 2000 and len(te) > 1000:
-        w0 = fit_logit(design(tr), tr.y.to_numpy(float))
-        te = with_first(te.assign(p=predict(w0, design(te))))
-        trk += [row(r) for r in te[te.p >= 0.08].itertuples()]
-        bt = {"season": int(prev), "model": scores(te.y, te.p), "base": scores(te.y, np.full(len(te), tr.y.mean())),
-              "posbase": scores(te.y, te.pos.map(tr.groupby("pos").y.mean()).fillna(tr.y.mean()).to_numpy())}
-        edges = [0, .03, .06, .1, .15, .2, .25, .3, .35, .4, .5, 1]
-        te["b"] = pd.cut(te.p, edges)
-        bt["cal"] = [[r3(x.p.mean()), r3(x.y.mean()), int(len(x))] for _, x in te.groupby("b", observed=True)]
-        bt["bypos"] = {k: [r3(x.p.mean()), r3(x.y.mean()), int(len(x))] for k, x in te.groupby("pos")}
-        # how well each single input sorts scorers from non-scorers on its own (rank AUC on the holdout)
-        z = te.assign(n1=te.n.clip(lower=1))
-        singles = {"Expected TDs per game (carries and targets weighted by field position)": (z.p_rx + z.p_tx) / z.n1,
-                   "Red-zone carries + targets per game": (z.p_rzc + z.p_rzt) / z.n1, "Actual TDs per game": z.p_tds / z.n1,
-                   "Targets per game": z.p_tg / z.n1, "Snap share": z.snw, "Carries per game": z.p_car / z.n1,
-                   "Carries inside the 5 per game": z.p_i5 / z.n1, "End-zone targets per game": z.p_ez / z.n1,
-                   "Team implied total": z.imp, "Full model": z.p}
-        bt["singles"] = sorted([[k, scores(z.y, (v - v.min()) / (v.max() - v.min() + 1e-9) * 0.98 + 0.01)["auc"]] for k, v in singles.items()], key=lambda x: -x[1])
-        model["bt"] = bt
-    # tracker: this season's games scored with a model that never saw this season
-    pre = s[s.season < season]
-    cur = s[s.season == season]
-    if len(pre) > 2000 and len(cur):
-        w1 = fit_logit(design(pre), pre.y.to_numpy(float))
-        cur = with_first(cur.assign(p=predict(w1, design(cur))))
-        model["trk"] = scores(cur.y, cur.p)
-        trk += [row(r) for r in cur[cur.p >= 0.08].itertuples()]
-    w = fit_logit(design(s), s.y.to_numpy(float))
-    model["w"] = [r3(x, 4) for x in w]
-    model["n"] = int(len(s))
-    # first-TD share: a player's slice of everyone's scoring rate in the game, scaled to how often the first TD goes to a listed player
-    s = s.assign(p=predict(w, design(s)))
-    s["rate"] = -np.log(1 - s.p)
-    s["fshare"] = s.rate / s.groupby("game_id").rate.transform("sum")
-    fcov = float(s.groupby("game_id").ftd.sum().mean())
-    model["fcov"] = r3(fcov)
-    s["pf"] = s.fshare * fcov
-    s["fb"] = pd.cut(s.pf, [0, .02, .04, .06, .09, .12, .2, 1])
-    model["fcal"] = [[r3(x.pf.mean()), r3(x.ftd.mean()), int(len(x))] for _, x in s.groupby("fb", observed=True)]
-
-    # ---- upcoming games
-    now = datetime.now(ET)
-    today = now.strftime("%Y-%m-%d")
-    # upcoming games, plus any from the last three days whose play-by-play has not been published yet (their picks stay on the page)
-    played = set(d.game_id)
-    since = (now - timedelta(days=3)).strftime("%Y-%m-%d")
-    up = games[(games.season == season) & ~games.game_id.isin(played) & (games.gameday >= since)].sort_values(["gameday", "gametime"])
-    weeks = sorted(up.week.unique())[:2]
-    up = up[up.week.isin(weeks)]
-    names = ros.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id", keep="last").set_index("gsis_id").full_name.to_dict()
-    cur_ros = ros[(ros.season == season)]
-    cur_ros = cur_ros[cur_ros.week == cur_ros.week.max()] if len(cur_ros) else cur_ros
-    cur_ros = cur_ros.assign(team=cur_ros.team.replace({"LAR": "LA"}))
-    P_end = decayed(d, "pid", PCOLS, HL, final=True)
-    tg_all = team_games(d)
-    O_end, D_end = decayed(tg_all, "posteam", TCOLS, HLT, final=True), decayed(tg_all, "opp", TCOLS, HLT, final=True)
-    dcur = d[d.season == season]
-    last2 = {t: list(x.drop_duplicates("game_id").game_id)[-2:] for t, x in dcur.groupby("posteam", sort=False)}
-    injw = {}
-    if inj is not None and len(inj):
-        for r in inj.itertuples():
-            injw.setdefault(int(r.week), {})[r.gsis_id] = [r.report_status if isinstance(r.report_status, str) else "",
-                                                           r.report_primary_injury if isinstance(r.report_primary_injury, str) else "",
-                                                           (r.practice_status if isinstance(r.practice_status, str) else "").replace(" Participation in Practice", "")]
-    rows, sched = [], []
-    for g in up.itertuples():
-        if pd.isna(g.spread_line) or pd.isna(g.total_line):
-            continue
-        ts = datetime.strptime(f"{g.gameday} {g.gametime}", "%Y-%m-%d %H:%M").replace(tzinfo=ET)
-        sched.append({"gid": g.game_id, "wk": int(g.week), "d": g.gameday, "t": ts.strftime("%a %-I:%M %p ET") if os.name != "nt" else ts.strftime("%a %I:%M %p ET"),
-                      "ts": ts.isoformat(), "a": g.away_team, "h": g.home_team, "sp": float(g.spread_line), "tot": float(g.total_line),
-                      "ia": r3(g.total_line / 2 - g.spread_line / 2, 2), "ih": r3(g.total_line / 2 + g.spread_line / 2, 2),
-                      "roof": g.roof if isinstance(g.roof, str) else "", "out": {}})
-        wkinj = injw.get(int(g.week), {})
-        for team, opp, imp in ((g.away_team, g.home_team, sched[-1]["ia"]), (g.home_team, g.away_team, sched[-1]["ih"])):
-            rs = cur_ros[(cur_ros.team == team) & cur_ros.position.isin(POS) & (cur_ros.status == "ACT")]
-            recent = set(dcur[dcur.game_id.isin(last2.get(team, [])) & (dcur.posteam == team)].pid)
-            out = []
-            for r in rs.itertuples():
-                st = wkinj.get(r.gsis_id, ["", "", ""])
-                if st[0] in ("Out", "Doubtful"):
-                    if r.gsis_id in P_end:
-                        out.append([r.full_name, r.position, st[0], st[1]])
-                    continue
-                if r.gsis_id not in P_end:
-                    continue
-                back = r.gsis_id not in recent
-                if back and not (r.gsis_id in wkinj and P_end[r.gsis_id][1] >= season - 1):
-                    continue          # has not played lately and is not on this week's report: treat as not in the plan
-                acc, last = P_end[r.gsis_id]
-                acc = acc * (SM if last != season else 1)
-                o, dd = O_end.get(team, (np.zeros(5), season))[0], D_end.get(opp, (np.zeros(5), season))[0]
-                row = {"game_id": g.game_id, "posteam": team, "opp": opp, "pid": r.gsis_id, "name": r.full_name, "pos": r.position,
-                       "imp": imp, "inj": st, "back": int(back), "n": acc[-1], "week": int(g.week),
-                       "eid": str(int(float(r.espn_id))) if pd.notna(r.espn_id) and str(r.espn_id).strip() else ""}
-                row.update({"p_" + c: acc[j] for j, c in enumerate(PCOLS)})
-                row.update({"o_" + c: o[j] for j, c in enumerate(TCOLS)}); row["o_n"] = o[-1]
-                row.update({"d_" + c: dd[j] for j, c in enumerate(TCOLS)}); row["d_n"] = dd[-1]
-                rows.append(row)
-            sched[-1]["out"][team] = out
-            # one quarterback per team: the listed starter, else whoever has taken the most snaps lately
-            qbs = [x for x in rows if x["game_id"] == g.game_id and x["posteam"] == team and x["pos"] == "QB"]
-            if len(qbs) > 1:
-                want = norm_name(getattr(g, "away_qb_name" if team == g.away_team else "home_qb_name", "") or "")
-                keep = next((x for x in qbs if norm_name(x["name"]) == want), None) or max(qbs, key=lambda x: (x["p_snp"] + 0.25) / (x["n"] + 1))
-                rows[:] = [x for x in rows if x not in qbs or x is keep]
-    picks = []
-    if rows:
-        u = structural(pd.DataFrame(rows), lg, pri, tfit)
-        u["p"] = predict(w, design(u))
-        u["rate"] = -np.log(1 - u.p)
-        u["pf"] = u.rate / u.groupby("game_id").rate.transform("sum") * fcov
-        logs = {}
-        for pid, x in d[d.pid.isin(set(u.pid))].groupby("pid", sort=False):
-            logs[pid] = [[f"{int(r.season) % 100}w{int(r.week)}", r.opp, r3(r.snp, 2), int(r.car), int(r.tg), int(r.i5), int(r.ez),
-                          int(r.rzc + r.rzt), r3(r.rx + r.tx, 2), int(r.tds)] for r in x.tail(6).itertuples()]
-        for r in u.itertuples():
-            n1 = max(r.n, 1e-9)
-            picks.append({"g": r.game_id, "id": r.pid, "n": r.name, "t": r.posteam, "o": r.opp, "pos": r.pos, "p": r3(r.p, 4), "pf": r3(r.pf, 4),
-                          "T": r3(r.T, 2), "sp": r3(r.split), "rs": r3(r.rshn), "ts": r3(r.tshn), "lr": r3(r.lam_r), "lt": r3(r.lam_t),
-                          "sn": r3(r.snw, 2), "dr": r3(r.dr, 2), "dt": r3(r.dt, 2), "ng": r3(r.n, 1), "inj": r.inj, "back": r.back, "eid": r.eid,
-                          "x": r3((r.p_rx + r.p_tx) / n1, 2), "td": r3(r.p_tds / n1, 2), "i5": r3(r.p_i5 / n1, 2), "ez": r3(r.p_ez / n1, 2),
-                          "rz": r3((r.p_rzc + r.p_rzt) / n1, 2), "log": logs.get(r.pid, [])})
-    # ---- research tables
-    def usage(x):
-        gp = x.groupby("pid").agg(n=("name", "last"), t=("posteam", "last"), pos=("pos", "last"), gp=("game_id", "nunique"), snp=("snp", "mean"),
-                                  car=("car", "sum"), tg=("tg", "sum"), i5=("i5", "sum"), ez=("ez", "sum"), rzc=("rzc", "sum"), rzt=("rzt", "sum"),
-                                  rx=("rx", "sum"), tx=("tx", "sum"), tds=("tds", "sum"), sc=("y", "sum"), trx=("trx", "sum"), ttx=("ttx", "sum")).reset_index()
-        gp = gp[(gp.car + gp.tg) >= 3]
-        return [[names.get(r.pid, r.n), r.t, r.pos, int(r.gp), r3(r.snp, 2), int(r.car), int(r.tg), int(r.i5), int(r.ez), int(r.rzc + r.rzt),
-                 r3(r.rx + r.tx, 2), int(r.tds), int(r.sc), r3(r.rx / r.trx if r.trx else 0), r3(r.tx / r.ttx if r.ttx else 0)] for r in gp.itertuples()]
-    players = {str(int(y)): usage(d[d.season == y]) for y in seasons[-2:]}
-
-    def teams(x):
-        out = {}
-        tgx = team_games(x)
-        for t, o in tgx.groupby("posteam"):
-            df = tgx[tgx.opp == t]
-            xx, xo = x[x.posteam == t], x[x.opp == t]
-            ng, nd = len(o), max(len(df), 1)
-            by = lambda z, p: r3(z[z.pos == p].tds.sum() / max(z.game_id.nunique(), 1), 2)
-            out[t] = {"g": int(ng), "td": r3((o.trtd + o.tctd).mean(), 2), "rtd": r3(o.trtd.mean(), 2), "ctd": r3(o.tctd.mean(), 2),
-                      "rx": r3(o.trx.mean(), 2), "tx": r3(o.ttx.mean(), 2), "imp": r3(o.imp.mean(), 1),
-                      "i5": r3(xx.i5.sum() / ng, 2), "ez": r3(xx.ez.sum() / ng, 2), "rz": r3((xx.rzc + xx.rzt).sum() / ng, 1),
-                      "d": {"td": r3((df.trtd + df.tctd).mean(), 2), "rtd": r3(df.trtd.mean(), 2), "ctd": r3(df.tctd.mean(), 2),
-                            "rx": r3(df.trx.mean(), 2), "tx": r3(df.ttx.mean(), 2), "qb": by(xo, "QB"), "rb": by(xo, "RB"), "wr": by(xo, "WR"), "te": by(xo, "TE")}}
-        return out
-    tms = {str(int(y)): teams(d[d.season == y]) for y in seasons[-2:]}
-    out = {"season": int(season), "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "through": str(d.gameday.max()),
-           "lastwk": int(dcur.week.max()) if len(dcur) else 0, "sched": sched, "picks": picks, "players": players, "teams": tms,
-           "model": model, "trk": trk, "feed": td_feed(pbp, d, pl, [season - 1, season])}
-    note = None
-    bf = os.environ.get("ODDS_BACKFILL", "").strip().lower()
-    if bf in ("1", "2", "3", "4", "5", "true"):
-        try:
-            backfill(season, int(os.environ.get("ODDS_LEAD", "60")), True, int(os.environ.get("ODDS_BACKFILL_MAX", "0")) or None, back=1 if bf in ("2", "5") else 0, first=bf == "3", two=bf in ("4", "5"))
-        except SystemExit as e:
-            note = str(e)
-            print(note, file=sys.stderr)
-    full = remember_odds(sched, old)
-    live = {u["gid"] for u in sched}
-    out["picks"], locks = apply_locks(sched, picks)
-    for row_ in trk:                      # this season's finished games: grade the chances the page showed at kickoff
-        lk = (locks.get(row_[2]) or {}).get("lock") if row_[0] == season else None
-        if lk and norm_name(row_[3]) in lk:
-            v = lk[norm_name(row_[3])]
-            row_[7], row_[10] = v[0], v[1]
-            if len(v) > 3:              # on the Top 8 / long-shot / 2+ TD list at kickoff (1) or not (0)
-                row_ += [v[2], v[3], v[4] if len(v) > 4 else None]
-    tmap = {(a, b_): r3(c, 2) for a, b_, c in zip(s.game_id, s.posteam, s["T"])}
-    for row_ in trk:                      # the team's expected touchdowns, for the 2+ TD chance
-        row_ += [None] * (15 - len(row_))
-        row_.append(tmap.get((row_[2], row_[4])))
-    out["live"] = live_scores(sched)
-    out["notes"] = espn_notes({norm_name(x["n"]) for x in out["picks"]})
-    out["odds"] = {}
-    for k, v in full.items():
-        if k == "_meta" or k in live or not v.get("b"):
-            out["odds"][k] = {a: b for a, b in v.items() if a not in ("lock", "lockrows")} if k != "_meta" else v
-            continue
-        best = {}
-        for bk, rows_ in v["b"].items():
-            for who, price in rows_:
-                if who not in best or price > best[who][1]:
-                    best[who] = [who, price, bk]
-        out["odds"][k] = {"at": v.get("at"), "best": list(best.values())}
-        bf_ = {}
-        for bk, rows_ in (v.get("f") or {}).items():
-            for who, price in rows_:
-                if who not in bf_ or price > bf_[who][1]:
-                    bf_[who] = [who, price, bk]
-        if bf_:
-            out["odds"][k]["bestf"] = list(bf_.values())
-        bt_ = {}
-        for bk, rows_ in (v.get("t") or {}).items():
-            for who, price in rows_:
-                if who not in bt_ or price > bt_[who][1]:
-                    bt_[who] = [who, price, bk]
-        if bt_:
-            out["odds"][k]["bestt"] = list(bt_.values())
-    if note:
-        out["odds"]["_meta"]["err"] = note[:200]
-    return out
-
-
-# ---------- kickoff locks ----------
-def american(a):
-    return 1 + a / 100 if a > 0 else 1 + 100 / -a
-
-
-def apply_locks(sched, picks, now=None):
-    """Freeze each game's numbers at kickoff. In the two hours before a game its rows are saved (the last save wins); once it has
-    kicked off the saved rows are shown instead of fresh ones, so picks do not move during the game. The saved chances are kept
-    for good in odds.json, and the Tracker grades this season's games on them: the record is what the page actually showed."""
-    now = now or datetime.now(ET)
-    try:
-        store = json.load(open(ODDS, encoding="utf-8"))
-    except Exception:
-        store = {}
-    by = {}
-    for r in picks:
-        by.setdefault(r["g"], []).append(r)
-    live = {u["gid"] for u in sched}
-    hours = {u["gid"]: (datetime.fromisoformat(u["ts"]) - now).total_seconds() / 3600 for u in sched}
-    # who is on the Top 8 and long-shot lists right now, with every game already under way held as it stood at its kickoff
-    member = {}
-    for wk in {u["wk"] for u in sched}:
-        cand = []
-        for u in sched:
-            if u["wk"] != wk:
-                continue
-            rec = store.get(u["gid"]) or {}
-            started = hours[u["gid"]] <= 0 and rec.get("lockrows")
-            best, best2 = {}, {}
-            for src, dst in ((rec.get("b") or {}, best), (rec.get("t") or {}, best2)):
-                for rows_ in src.values():
-                    for x in rows_:
-                        k = norm_name(x[0])
-                        if isinstance(x[1], (int, float)) and x[1] and (k not in dst or american(x[1]) > dst[k]):
-                            dst[k] = american(x[1])
-            for r in (rec["lockrows"] if started else by.get(u["gid"], [])):
-                d = best.get(norm_name(r["n"]))
-                ev = r["p"] * d - 1 if d else None
-                pick = bool(d and r["p"] >= 0.2 and 0.03 <= ev <= 0.25)
-                long_ = bool(d and not pick and 0.10 <= r["p"] < 0.25 and 5 <= d < 10 and ev > 0)
-                d2, p2 = best2.get(norm_name(r["n"])), two_chance(r["p"], r.get("pos"), r.get("T"))
-                ev2 = p2 * d2 - 1 if d2 else None
-                cand.append({"key": (u["gid"], r["id"]), "p": r["p"], "ev": ev, "pick": pick, "long": long_,
-                             "two": bool(d2 and p2 >= 0.15), "k2": p2,          # the 2+ TD picks: the four likeliest with a price, whatever the edge
-                             "t8": r.get("t8") if started else None, "l4": r.get("l4") if started else None, "d2": r.get("d2") if started else None})
-        for flag, kind, n, rank in (("t8", "pick", 8, "p"), ("l4", "long", 4, "ev"), ("d2", "two", 4, "k2")):
-            # held players keep their place; a player whose game is still to come joins when he ranks in the best n of
-            # everyone still eligible, so the list can grow past n but never drops anybody
-            best_n = sorted((c for c in cand if c[flag] != 0 and c[kind]), key=lambda c: -c[rank])[:n]
-            for c in cand:
-                if c[flag] == 1 or (c[flag] is None and any(c is x for x in best_n)):
-                    member.setdefault(c["key"], {})[flag] = 1
-    out = []
-    for u in sched:
-        hrs = hours[u["gid"]]
-        rows = by.get(u["gid"], [])
-        rec = store.get(u["gid"]) or {}
-        if 0 < hrs <= 2 and rows:
-            flags = lambda r, f: int((member.get((u["gid"], r["id"])) or {}).get(f, 0))
-            rec["lockrows"] = [dict(r, t8=flags(r, "t8"), l4=flags(r, "l4"), d2=flags(r, "d2")) for r in rows]
-            rec["lock"] = {norm_name(r["n"]): [r["p"], r["pf"], flags(r, "t8"), flags(r, "l4"), flags(r, "d2")] for r in rows}
-            store[u["gid"]] = rec
-            u["lk"] = 1          # saved: the page can say "frozen" the moment the game kicks off
-        elif hrs <= 0 and rec.get("lockrows"):
-            rows = rec["lockrows"]
-            u["locked"] = 1
-        out += rows
-    for k, v in store.items():
-        if k != "_meta" and k not in live and isinstance(v, dict):
-            v.pop("lockrows", None)
-    with open(ODDS, "w", encoding="utf-8") as f:
-        json.dump(store, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
-    return out, store
-
-
-# ---------- live results ----------
-ESPN = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/"
-ESPN_ABBR = {"WSH": "WAS", "LAR": "LA"}
-
-
-def parse_summary(summ):
-    """Touchdowns in an ESPN game summary: ({player: count}, first scorer, [[player, quarter, clock, kind, wallclock], ...],
-    {player: [full name, team]}). Counts come from the box score (full names); each touchdown play is matched back to those names."""
-    td, kinds = {}, {}
-    for team in ((summ.get("boxscore") or {}).get("players") or []):
-        ab = (team.get("team") or {}).get("abbreviation") or ""
-        ab = ESPN_ABBR.get(ab, ab)
-        for grp in team.get("statistics") or []:
-            labels = grp.get("labels") or []
-            if grp.get("name") == "passing" or "TD" not in labels:
-                continue
-            i = labels.index("TD")
-            for a in grp.get("athletes") or []:
-                try:
-                    n = int(float((a.get("stats") or [])[i]))
-                except Exception:
-                    n = 0
-                if n > 0:
-                    full = (a.get("athlete") or {}).get("displayName") or ""
-                    k = norm_name(full)
-                    td[k] = td.get(k, 0) + n
-                    kinds.setdefault(k, {"full": full, "team": ab, "g": set()})["g"].add(grp.get("name"))
-    plays = []
-    dr = summ.get("drives") or {}
-    for d in (dr.get("previous") or []) + ([dr["current"]] if isinstance(dr.get("current"), dict) else []):
-        plays += d.get("plays") or []
-    feed, seen = [], set()
-    key = lambda x: f"{(x.get('period') or {}).get('number')}|{(x.get('clock') or {}).get('displayValue')}"      # one touchdown per quarter-and-clock
-    wall = {key(x): x.get("wallclock") for x in plays if x.get("wallclock")}      # the scoring summary has no time of day; the drive plays do
-    for sp in (summ.get("scoringPlays") or []) + plays:
-        kind = ((sp.get("scoringType") or {}).get("abbreviation") or "") + " " + ((sp.get("type") or {}).get("text") or "")
-        if "TD" not in kind and "touchdown" not in kind.lower():
-            continue
-        if key(sp) in seen:
-            continue
-        seen.add(key(sp))
-        text = sp.get("text") or ""
-        who = None
-        m = re.match(r"^(.*?)\s+\d+\s+(?:Yd|Yard)", text)          # "Jonathan Taylor 3 Yd Run" style
-        if m and norm_name(m.group(1)) in td:
-            who = norm_name(m.group(1))
-        else:
-            ret = bool(re.search("return|interception|fumble|block|kickoff|punt", kind, re.I))
-            want = "ret" if ret else "receiving" if "pass" in kind.lower() else "rushing" if "rush" in kind.lower() else None
-            best = None
-            for k, v in kinds.items():                              # "J.Williams left guard ..." style: initial + surname
-                parts = v["full"].split()
-                if len(parts) < 2:
-                    continue
-                if want == "ret":                                   # a return: the scorer is credited outside rushing/receiving
-                    if not (v["g"] - {"rushing", "receiving"}):
-                        continue
-                elif want and want not in v["g"]:
-                    continue
-                pos = text.rfind(parts[0][0] + "." + parts[1]) if want in ("ret", "receiving") else text.find(parts[0][0] + "." + parts[1])
-                if pos >= 0 and (best is None or (pos > best[0] if want in ("ret", "receiving") else pos < best[0])):
-                    best = (pos, k)
-            who = best[1] if best else None
-        label = "Return" if re.search("return|interception|fumble|block|kickoff|punt", kind, re.I) else "Rec" if "pass" in kind.lower() else "Rush" if "rush" in kind.lower() else "TD"
-        feed.append([who, (sp.get("period") or {}).get("number"), (sp.get("clock") or {}).get("displayValue") or "", label, sp.get("wallclock") or wall.get(key(sp)) or ""])
-    first = feed[0][0] if feed else None
-    return td, first, feed, {k: [v["full"], v["team"]] for k, v in kinds.items()}
-
-
-BOX = {"passing": ("p", ["C/ATT", "YDS", "TD", "INT"]), "rushing": ("r", ["CAR", "YDS", "TD", "LONG"]),
-       "receiving": ("c", ["TGTS", "REC", "YDS", "TD", "LONG"])}
-
-
-def parse_box(summ):
-    """Offensive box score from an ESPN game summary: {team: {"p": [[name, C/ATT, yards, TD, INT]], "r": [[name, carries, yards, TD, long]],
-    "c": [[name, targets, catches, yards, TD, long]]}}."""
-    out = {}
-    for team in ((summ.get("boxscore") or {}).get("players") or []):
-        ab = (team.get("team") or {}).get("abbreviation") or ""
-        ab = ESPN_ABBR.get(ab, ab)
-        for grp in team.get("statistics") or []:
-            if grp.get("name") not in BOX:
-                continue
-            key, want = BOX[grp["name"]]
-            labels = grp.get("labels") or []
-            for a in grp.get("athletes") or []:
-                st = a.get("stats") or []
-                row = [(a.get("athlete") or {}).get("displayName") or ""] + [st[labels.index(w)] if w in labels and labels.index(w) < len(st) else "" for w in want]
-                out.setdefault(ab, {}).setdefault(key, []).append(row)
-    return out
-
-
-def espn_notes(names):
-    """Latest injury note for each listed player from ESPN's injury feed: {player: [status, one-line note, date]}."""
-    out = {}
-    try:
-        data = json.loads(get(ESPN + "injuries", 30))
-        for team in data.get("injuries") or []:
-            for it in team.get("injuries") or []:
-                k = norm_name((it.get("athlete") or {}).get("displayName") or "")
-                if k in names:
-                    out[k] = [it.get("status") or "", (it.get("shortComment") or "")[:240], (it.get("date") or "")[:10]]
-    except Exception as ex:
-        print(f"injury notes unavailable: {ex}", file=sys.stderr)
-    return out
-
-
-def live_scores(sched):
-    """Touchdown scorers for listed games that have kicked off, from ESPN, so picks can be marked before the play-by-play arrives.
-    {game: {"st": "in" or "post", "td": {player: touchdowns}, "first": player}}. Empty if ESPN cannot be read."""
-    now = datetime.now(ET)
-    started = [u for u in sched if datetime.fromisoformat(u["ts"]) <= now]
-    out = {}
-    try:
-        for day in sorted({u["d"] for u in started}):
-            sb = json.loads(get(f"{ESPN}scoreboard?dates={day.replace('-', '')}", 30))
-            for e in sb.get("events") or []:
-                comp = (e.get("competitions") or [{}])[0]
-                tm = {c.get("homeAway"): ESPN_ABBR.get((c.get("team") or {}).get("abbreviation"), (c.get("team") or {}).get("abbreviation")) for c in comp.get("competitors") or []}
-                u = next((x for x in started if x["a"] == tm.get("away") and x["h"] == tm.get("home")), None)
-                state = ((e.get("status") or {}).get("type") or {}).get("state")
-                if not u or state not in ("in", "post"):
-                    continue
-                rec = {"st": state, "td": {}, "first": None,
-                       "sc": {ESPN_ABBR.get((c.get("team") or {}).get("abbreviation"), (c.get("team") or {}).get("abbreviation")): c.get("score") for c in comp.get("competitors") or []},
-                       "clk": ((e.get("status") or {}).get("type") or {}).get("shortDetail") or ""}
-                try:
-                    summ = json.loads(get(f"{ESPN}summary?event={e['id']}", 30))
-                    rec["td"], rec["first"], rec["ev"], rec["nm"] = parse_summary(summ)
-                    rec["box"] = parse_box(summ)
-                except Exception as ex:
-                    print(f"live: {u['gid']}: {ex}", file=sys.stderr)
-                out[u["gid"]] = rec
-    except Exception as ex:
-        print(f"live results unavailable: {ex}", file=sys.stderr)
-    return out
-
-
-# ---------- prices ----------
-def odds_key():
-    k = os.environ.get("ODDS_API_KEY", "").strip()
-    if not k:
-        try:
-            k = open("odds_key.txt", encoding="utf-8").read().strip()
-        except Exception:
-            pass
-    return k
-
-
-def parse_td(doc, market="player_anytime_td"):
-    """{book: [[player, american price], ...]} for one event."""
-    out = {}
+def parse_first_basket(doc, market="player_first_basket"):
+    """First-basket prices (or first team basket, with that market key): [[player, best price, best book, {book: price}], ...]."""
+    best, every = {}, {}
     for bk in doc.get("bookmakers") or []:
+        name = bk.get("title") or bk.get("key") or ""
         for mk in bk.get("markets") or []:
             if mk.get("key") != market:
                 continue
-            rows = []
             for o in mk.get("outcomes") or []:
-                who, price = o.get("description") or o.get("name"), o.get("price")
-                if not who or str(o.get("name")) == "No" or who in ("Yes", "No") or not isinstance(price, (int, float)):
+                who = o.get("description") or o.get("name")
+                price = o.get("price")
+                if not who or who in ("Yes", "No") or str(o.get("name")) == "No" or not isinstance(price, (int, float)):
                     continue
-                rows.append([who, int(price)])
-            if rows:
-                out[bk.get("title") or bk.get("key")] = rows
-    return out
+                price = int(price)
+                if price > every.setdefault(who, {}).get(name, -10 ** 9):
+                    every[who][name] = price
+                if who not in best or price > best[who][1]:
+                    best[who] = [who, price, name]
+    return sorted(([w, p, bk, every[w]] for w, p, bk in best.values()), key=lambda x: x[1])
 
 
-def parse_two(doc):
-    """{book: [[player, american price], ...]} for two or more touchdowns (the over on a 1.5 line) in one event."""
-    out = {}
+def parse_method(doc, market="player_method_of_first_basket"):
+    """Method-of-first-basket prices, kept as the books word them: [[label, best price, best book, {book: price}], ...].
+    The label is the outcome's name, with the player in front ("Player · Dunk") when the book prices player-and-method
+    combinations; the page reads the method and the player from it."""
+    best, every = {}, {}
     for bk in doc.get("bookmakers") or []:
-        rows = {}
+        name = bk.get("title") or bk.get("key") or ""
         for mk in bk.get("markets") or []:
-            if mk.get("key") not in ("player_tds_over", "player_tds"):
+            if mk.get("key") != market:
                 continue
             for o in mk.get("outcomes") or []:
-                who, price, pt = o.get("description"), o.get("price"), o.get("point")
-                if who and str(o.get("name")) == "Over" and isinstance(price, (int, float)) and isinstance(pt, (int, float)) and abs(pt - 1.5) < 0.01:
-                    rows[who] = int(price)
-        if rows:
-            out[bk.get("title") or bk.get("key")] = [[k, v] for k, v in rows.items()]
-    return out
+                price, nm, who = o.get("price"), str(o.get("name") or ""), str(o.get("description") or "")
+                if not nm or nm in ("No",) or not isinstance(price, (int, float)):
+                    continue
+                lab = (who + " · " + nm) if who and who != nm else nm
+                price = int(price)
+                if price > every.setdefault(lab, {}).get(name, -10 ** 9):
+                    every[lab][name] = price
+                if lab not in best or price > best[lab][1]:
+                    best[lab] = [lab, price, name]
+    return sorted(([w, p, bk, every[w]] for w, p, bk in best.values()), key=lambda x: x[1])
 
 
-TWO = {"p": 0.20, "lo": -0.10, "hi": 0.50}      # the 2+ TD picks: chance of two 20%+, edge -10% to +50%, best four by edge (the page uses the same numbers)
+def parse_threes(doc, main="player_threes", alt="player_threes_alternate"):
+    """Made-threes prices from the over/under and alternate markets (rebounds use the same shape: pass their market keys).
+
+    Returns (lines, ladder).
+    lines is [[player, line, best over, book, best under, book, {book: [its line, its over, its under]}], ...] at the
+    line most books post for him; the last item keeps every book's own line and prices.
+    ladder is [[player, k, best price for k or more, book, {book: price}], ...] from the alternates and every over.
+    """
+    by, ladder, lall, perbook = {}, {}, {}, {}
+    for bk in doc.get("bookmakers") or []:
+        name = bk.get("title") or bk.get("key") or ""
+        for mk in bk.get("markets") or []:
+            if mk.get("key") not in (main, alt):
+                continue
+            for o in mk.get("outcomes") or []:
+                who, side, pt, price = o.get("description"), str(o.get("name", "")), o.get("point"), o.get("price")
+                if not who or not isinstance(price, (int, float)) or not isinstance(pt, (int, float)):
+                    continue
+                price = int(price)
+                if side == "Over":
+                    k = int(math.floor(pt)) + 1
+                    if (who, k) not in ladder or price > ladder[(who, k)][0]:
+                        ladder[(who, k)] = [price, name]
+                    if price > lall.setdefault((who, k), {}).get(name, -10 ** 9):
+                        lall[(who, k)][name] = price
+                if mk["key"] == main and side in ("Over", "Under"):
+                    by.setdefault(who, {}).setdefault(float(pt), {"n": set(), "Over": None, "Under": None})
+                    e = by[who][float(pt)]
+                    e["n"].add(name)
+                    if e[side] is None or price > e[side][0]:
+                        e[side] = [price, name]
+                    pb = perbook.setdefault(who, {}).setdefault(name, {}).setdefault(float(pt), [None, None])
+                    i = 0 if side == "Over" else 1
+                    if pb[i] is None or price > pb[i]:
+                        pb[i] = price
+    lines = []
+    for who, pts in by.items():
+        pt, e = max(pts.items(), key=lambda kv: (len(kv[1]["n"]), -kv[0]))
+        o, u = e["Over"] or [None, ""], e["Under"] or [None, ""]
+        books = {}
+        for name, bl in perbook.get(who, {}).items():  # each book's own line: the common one if it posts it, else its fullest
+            bp = pt if pt in bl else max(bl, key=lambda q: (sum(v is not None for v in bl[q]), -abs(q - pt)))
+            books[name] = [bp, bl[bp][0], bl[bp][1]]
+        lines.append([who, pt, o[0], o[1], u[0], u[1], books])
+    return sorted(lines, key=lambda x: (x[0], x[1])), [[who, k, v[0], v[1], lall.get((who, k), {})] for (who, k), v in sorted(ladder.items())]
 
 
-TWO_W = {"c": 0.362, "s": 1.035, "RB": -0.138, "WR": -0.54, "QB": 0.409, "T": 0.257}
+def odds_get(url):
+    """One request to The Odds API: (parsed JSON, credits remaining or None, credits this call used or None)."""
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=60, context=CTX or ssl_context()) as r:
+        num = lambda h: float(r.headers[h]) if r.headers.get(h) not in (None, "") else None
+        return json.loads(r.read()), num("x-requests-remaining"), num("x-requests-last")
 
 
-def two_chance(p, pos=None, T=None):
-    """Chance of two or more touchdowns. Starts from what the chance of one implies if touchdowns arrived independently, then
-    corrects it: second touchdowns cluster with lead backs, running quarterbacks and high-scoring teams, and are rarer for
-    receivers. Weights fitted on 7,693 priced player-games (2025 and early 2026); the page uses the same numbers."""
-    p = min(max(p, 1e-6), 0.999)
-    lam = -math.log(1 - p)
-    q = min(max(1 - (1 - p) * (1 + lam), 1e-6), 0.99)
-    z = TWO_W["c"] + TWO_W["s"] * math.log(q / (1 - q)) + TWO_W.get(pos, 0.0) + TWO_W["T"] * ((T if T is not None else 2.5) - 2.5)
-    return 1 / (1 + math.exp(-z))
+def backfill_odds(season, html, max_credits=0, reserve=300):
+    """Fill odds.json with first-basket prices for a past season from The Odds API's historical data (paid plans only).
+
+    For every game of the season already in the dashboard: find the event as it was listed that morning (1 credit a
+    day), then read its first-basket prices ten minutes before tip (10 credits), or an hour before if that snapshot
+    has none. Games already in odds.json are skipped, so the job can be stopped and run again. It stops when
+    max_credits have been used (0 = no limit) or fewer than `reserve` credits remain on the key.
+    """
+    key = os.environ.get("ODDS_API_KEY", "").strip()
+    if not key:
+        sys.exit("Set ODDS_API_KEY to a paid Odds API key first.")
+    old = embedded(html) if html else None
+    if not old:
+        sys.exit(f"Could not read the games inside {html}.")
+    store = {}
+    try:
+        with open(ODDS, encoding="utf-8") as f:
+            store = json.load(f)
+    except Exception:
+        pass
+    days = {}
+    for g in old["games"]:
+        if g["s"] == season:
+            days.setdefault(g["d"], []).append(g)
+    hist = "https://api.the-odds-api.com/v4/historical/sports/basketball_nba"
+    used, got, empty, left = 0, 0, 0, None
+    iso = lambda t: t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def save():
+        with open(ODDS, "w", encoding="utf-8") as f:
+            json.dump(store, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+
+    def spent(remaining, cost, fallback):
+        nonlocal used, left
+        used += cost if cost is not None else fallback
+        if remaining is not None:
+            left = remaining
+
+    def out_of_budget(need):
+        return (max_credits and used + need > max_credits) or (left is not None and left - need < reserve)
+
+    stop = False
+    try:
+        try:  # a free call, to learn how many credits the key has before spending any
+            left = odds_get(f"https://api.the-odds-api.com/v4/sports?apiKey={key}")[1]
+        except urllib.error.HTTPError:
+            raise
+        except Exception:
+            pass
+        for d in sorted(days):
+            if stop:
+                break
+            todo = [g for g in days[d] if f"{d}|{g['a']}|{g['h']}" not in store]
+            if not todo:
+                continue
+            if out_of_budget(1 + 10 * len(todo)):
+                print(f"stopping before {d}: credit limit reached", flush=True)
+                break
+            doc, rem, cost = odds_get(f"{hist}/events?apiKey={key}&date={d}T14:00:00Z")
+            spent(rem, cost, 1)
+            events = {}
+            for e in doc.get("data") or []:
+                when = datetime.fromisoformat(e["commence_time"].replace("Z", "+00:00"))
+                if when.astimezone(ET).strftime("%Y-%m-%d") == d:
+                    events[(TEAM_NAMES.get(e.get("away_team")), TEAM_NAMES.get(e.get("home_team")))] = (e["id"], when)
+            for g in todo:
+                k = f"{d}|{g['a']}|{g['h']}"
+                ev = events.get((g["a"], g["h"]))
+                if not ev:
+                    store[k] = {"hist": 1, "miss": "no event listed"}
+                    empty += 1
+                    continue
+                if out_of_budget(10):
+                    print(f"stopping during {d}: credit limit reached", flush=True)
+                    stop = True
+                    break
+                prices, at = [], None
+                for back in (10, 60):
+                    snap = ev[1] - timedelta(minutes=back)
+                    doc, rem, cost = odds_get(f"{hist}/events/{ev[0]}/odds?apiKey={key}&date={iso(snap)}&regions=us"
+                                              f"&markets=player_first_basket&oddsFormat=american")
+                    spent(rem, cost, 10)
+                    prices = parse_first_basket(doc.get("data") or {})
+                    if prices:
+                        at = doc.get("timestamp") or iso(snap)
+                        break
+                    if out_of_budget(10):
+                        break
+                if prices:
+                    when = datetime.fromisoformat(at.replace("Z", "+00:00")).astimezone(ET)
+                    store[k] = {"p": prices, "n": 1, "at": when.strftime("%Y-%m-%dT%H:%M"), "hist": 1}
+                    got += 1
+                else:
+                    store[k] = {"hist": 1, "miss": "no first-basket prices in the snapshot"}
+                    empty += 1
+                time.sleep(0.15)
+            if got == 0 and empty >= 20:  # nothing is matching: stop before spending more, and leave those games to be tried again
+                for k in [k for k, v in store.items() if v.get("hist") and v.get("miss")]:
+                    del store[k]
+                save()
+                sys.exit("No first-basket prices found in the first 20 games tried, so the backfill stopped to save credits. "
+                         "The key's plan may not include historical data for this market.")
+            save()
+            print(f"{d}: {len(todo)} games, {used:.0f} credits used so far" + (f", {left:.0f} left" if left is not None else ""), flush=True)
+    except urllib.error.HTTPError as e:
+        save()
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")[:300]
+        except Exception:
+            pass
+        sys.exit(f"The Odds API refused a request ({e.code}). {body}\nSaved what was fetched: {got} games.")
+    save()
+    print(f"done: prices for {got} games, {empty} without, {used:.0f} credits used" + (f", {left:.0f} left on the key" if left is not None else ""))
 
 
-def remember_odds(sched, old, force=False):
-    """Anytime-TD prices for the listed games from The Odds API, kept in odds.json.
+def remember_odds(sched, old):
+    """First-basket prices for today's games from The Odds API, kept in odds.json so each game is asked for at most three times.
 
-    Two requests per game per look (anytime and first touchdown, one region). ODDS_LOOKS sets the looks, in hours before
-    kickoff (default "24,3,1": the day before, after inactives are close, and just before kickoff). About 420 requests a month.
-    Pulling stops when fewer than 15 requests remain on the key."""
+    Needs the key in the ODDS_API_KEY environment variable; without it this only returns what is already stored.
+    Each request covers nine markets (first basket, first team basket, method of first basket, and made threes,
+    rebounds and assists with their alternates) and costs up to nine credits; a game is fetched once inside eight hours of tip, again inside two hours, and a last
+    time inside 25 minutes, after the lineups are posted: about twenty-seven credits a game. Fetching stops when fewer than 300 credits remain on the key.
+    """
     store = dict((old or {}).get("odds") or {})
     try:
         with open(ODDS, encoding="utf-8") as f:
             store.update(json.load(f))
     except Exception:
         pass
-    key = odds_key()
-    meta = store.get("_meta") or {}
+    key = os.environ.get("ODDS_API_KEY", "").strip()
     if not key:
-        meta["key"] = 0
-        store["_meta"] = meta
         return store
-    meta["key"] = 1
+    before = json.dumps(store, sort_keys=True)
     now = datetime.now(ET)
-    looks = sorted((float(x) for x in os.environ.get("ODDS_LOOKS", "24,3,1").split(",") if x.strip()), reverse=True)
     want = []
     for u in sched:
-        hrs = (datetime.fromisoformat(u["ts"]) - now).total_seconds() / 3600
-        rec = store.get(u["gid"]) or {}
-        due = sum(1 for h in looks if hrs <= h)          # looks whose time has come
-        nof = rec.get("b") and not rec.get("f") and rec.get("ftries", 0) < 3 and hrs <= looks[0]     # one catch-up for first-TD prices
-        nof = nof or (rec.get("b") and not rec.get("t") and rec.get("ttries", 0) < 2 and hrs <= looks[0])      # and for 2+ TD prices
-        if 0 < hrs and ((due > rec.get("n", 0) and rec.get("tries", 0) < 8) or nof or (force and hrs <= 72)):
-            want.append((u, due))
+        if u.get("lv") or not u.get("ts"):
+            continue
+        mins = (datetime.fromisoformat(u["ts"]) - now).total_seconds() / 60
+        k = f"{u['d']}|{u['a']}|{u['h']}"
+        rec = store.get(k) or {}
+        # empty-handed tries (markets not posted yet) are spaced half an hour apart, so a five-minute refresh does not use them all at once;
+        # ten of them cover the five hours from eight hours out
+        waited = not rec.get("tt") or (now - datetime.fromisoformat(rec["tt"]).replace(tzinfo=ET)).total_seconds() >= 30 * 60
+        has = any(rec.get(x) for x in ("p", "t3", "t3a", "rb", "rba", "as", "asa", "ft", "mf"))
+        n = rec.get("n", 1)
+        since = (now - datetime.fromisoformat(rec["at"]).replace(tzinfo=ET)).total_seconds() / 60 if rec.get("at") else 999
+        # second look inside two hours (at least 45 minutes after the first), last look inside 25 minutes, once lineups are out
+        again = has and 0 < mins and ((n < 2 and mins <= 120 and since >= 45) or (n < 3 and mins <= 25 and since >= 15))
+        if (not has and 0 < mins <= 480 and rec.get("tries", 0) < 10 and waited) or again:
+            want.append((k, u))
     if want:
         try:
-            events = json.loads(get(f"{ODDS_API}/events?apiKey={key}", 60))     # listing events is free
+            events = json.loads(get(f"{ODDS_API}/events?apiKey={key}"))   # listing events is free
             ids = {(TEAM_NAMES.get(e.get("away_team")), TEAM_NAMES.get(e.get("home_team"))): e["id"] for e in events}
-            for u, due in want:
+            for k, u in want:
                 eid = ids.get((u["a"], u["h"]))
                 if not eid:
                     continue
-                raw, hd = get(f"{ODDS_API}/events/{eid}/odds?apiKey={key}&regions=us&markets=player_anytime_td,player_1st_td,player_tds_over&oddsFormat=american", 60, headers=True)
-                doc = json.loads(raw)
-                books, first, two = parse_td(doc), parse_td(doc, "player_1st_td"), parse_two(doc)
-                left = hd.get("x-requests-remaining")
-                if left is not None:
-                    meta["left"] = int(float(left))
-                rec = store.get(u["gid"]) or {}
-                if books:
-                    rec.update({"at": now.strftime("%Y-%m-%dT%H:%M"), "b": books, "n": max(due, rec.get("n", 0))})
-                    if first:
-                        rec["f"] = first
-                    else:
-                        rec["ftries"] = rec.get("ftries", 0) + 1
-                    if two:
-                        rec["t"] = two
-                    else:
-                        rec["ttries"] = rec.get("ttries", 0) + 1
+                req = urllib.request.Request(f"{ODDS_API}/events/{eid}/odds?apiKey={key}&regions=us&markets=player_first_basket,player_first_team_basket,player_threes,player_threes_alternate,player_rebounds,player_rebounds_alternate,player_assists,player_assists_alternate,player_method_of_first_basket&oddsFormat=american", headers={"Accept": "application/json"})
+                with urllib.request.urlopen(req, timeout=60, context=CTX or ssl_context()) as r:
+                    left = r.headers.get("x-requests-remaining")
+                    doc = json.loads(r.read())
+                prices = parse_first_basket(doc)
+                t3, t3a = parse_threes(doc)
+                rb, rba = parse_threes(doc, "player_rebounds", "player_rebounds_alternate")
+                ast, asa = parse_threes(doc, "player_assists", "player_assists_alternate")
+                ftb = parse_first_basket(doc, "player_first_team_basket")
+                mfb = parse_method(doc)
+                rec = store.get(k) or {}
+                if prices or t3 or t3a or rb or rba or ast or asa or ftb or mfb:  # a market that comes back empty keeps whatever was fetched for it before
+                    if prices:
+                        rec["p"] = prices
+                    if t3:
+                        rec["t3"] = t3
+                    if t3a:
+                        rec["t3a"] = t3a
+                    if rb:
+                        rec["rb"] = rb
+                    if rba:
+                        rec["rba"] = rba
+                    if ast:
+                        rec["as"] = ast
+                    if asa:
+                        rec["asa"] = asa
+                    if ftb:
+                        rec["ft"] = ftb
+                    if mfb:
+                        rec["mf"] = mfb
+                    rec.update({"n": rec.get("n", 0) + 1, "at": now.strftime("%Y-%m-%dT%H:%M")})
                 else:
-                    rec["tries"] = rec.get("tries", 0) + 1      # market not posted yet; try again next run
-                store[u["gid"]] = rec
-                if left is not None and float(left) < 15:
-                    print("odds: request allowance nearly used; stopping", file=sys.stderr)
+                    rec["tries"] = rec.get("tries", 0) + 1
+                    rec["tt"] = now.strftime("%Y-%m-%dT%H:%M")
+                store[k] = rec
+                if left is not None and float(left) < 300:  # leave room on the key for anything else that uses it
+                    print("odds: monthly request allowance nearly used; stopping", file=sys.stderr)
                     break
-            meta.pop("err", None)
         except Exception as e:
-            meta["err"] = str(e).replace(key, "***")[:200]
-            print(f"odds unavailable: {meta['err']}", file=sys.stderr)
-    store["_meta"] = meta
-    with open(ODDS, "w", encoding="utf-8") as f:
-        json.dump(store, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+            print(f"odds unavailable: {str(e).replace(key, '***')}", file=sys.stderr)
+    # Keep the price store small: after three days a game keeps only its best prices (the book-by-book prices go),
+    # and after two weeks its ladder prices go too. Picks and ladders themselves are kept in picks.json.
+    today = now.date()
+    for k, rec in store.items():
+        try:
+            age = (today - datetime.strptime(k[:10], "%Y-%m-%d").date()).days
+        except ValueError:
+            continue
+        if age > 3 and rec.get("thin", 0) < 1:
+            rec["p"] = [x[:3] for x in rec.get("p") or []]
+            rec["t3"] = [x[:6] for x in rec.get("t3") or []]
+            rec["t3a"] = [x[:4] for x in rec.get("t3a") or []]
+            for kk, n in (("rb", 6), ("rba", 4), ("as", 6), ("asa", 4), ("ft", 3), ("mf", 3)):
+                if rec.get(kk):
+                    rec[kk] = [x[:n] for x in rec[kk]]
+            rec["thin"] = 1
+        if age > 14 and rec.get("thin", 0) < 2:
+            rec.pop("t3a", None)
+            rec.pop("rba", None)
+            rec.pop("asa", None)
+            rec["thin"] = 2
+    if json.dumps(store, sort_keys=True) != before:
+        with open(ODDS, "w", encoding="utf-8") as f:
+            json.dump(store, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
     return store
 
 
-def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=False):
-    """Closing-ish anytime-TD prices for this season's finished games, from The Odds API's historical endpoints (paid plans only).
+def remember_positions(flags, sched, games, limit=30):
+    """Each starter's listed position (PG, SG, SF, PF, C), kept under "_pos" in flags.json.
 
-    For each finished game without stored prices it asks for the snapshot `lead` minutes before kickoff. Cost: 10 requests per
-    game, plus 1 per distinct kickoff slot to look up event ids. Nothing is spent unless go is set."""
-    season = season or current_season()
-    key = odds_key()
-    if not key:
-        sys.exit("No Odds API key. Put it in odds_key.txt next to this script or in the ODDS_API_KEY environment variable.")
-    g = pd.read_csv(cached("games.csv", GAMES, True))
-    g = g[g.season.isin(range(season - back, season + 1)) & g.home_score.notna()].sort_values(["gameday", "gametime"], ascending=False)
+    Positions come with the posted lineups. For teams whose recent starters have none on record yet, the
+    box scores of their latest games are read, a few per run, each game only once.
+    """
+    pos = dict(flags.get("_pos") or {})
+    tried = set(flags.get("_posTried") or [])
+    for u in sched:
+        for side in (u.get("lu") or {}).values():
+            for x in side.get("st", []):
+                if len(x) > 2 and x[2]:
+                    pos[str(x[0])] = x[2]
+    last = {}
+    for g in games or []:
+        for t in (g["h"], g["a"]):
+            last.setdefault(t, []).append(g)
+    n = 0
+    for t, gs in last.items():
+        for g in gs[-3:][::-1]:
+            st = (g.get("st") or {}).get(t, [])
+            if n >= limit or g["id"] in tried or all(str(p) in pos for p in st):
+                continue
+            tried.add(g["id"])
+            n += 1
+            lu = lineup(f"{int(g['id']):010d}")
+            for side in (lu or {}).values():
+                for x in side.get("st", []):
+                    if len(x) > 2 and x[2]:
+                        pos.setdefault(str(x[0]), x[2])
+            time.sleep(0.2)
+    if pos:
+        flags["_pos"] = pos
+    if tried:
+        flags["_posTried"] = sorted(tried)[-400:]
+    return flags
+
+
+def remember_flags(sched, inj, old, games=None):
+    """Keep what was flagged before each of today's games, so it can still be shown after they are played.
+
+    One entry per game, keyed "date|away|home": the injury designations for both teams and the posted
+    lineups, as last seen before tip. Stored in flags.json next to the script and inside the page data.
+    """
+    flags = dict((old or {}).get("flags") or {})
     try:
-        store = json.load(open(ODDS, encoding="utf-8"))
+        with open(FLAGS, encoding="utf-8") as f:
+            flags.update(json.load(f))
     except Exception:
-        store = {}
-    if two:        # 2+ TD prices for games that do not have them yet
-        todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("t") and not (store.get(r.game_id) or {}).get("ttry")]
-    elif first:    # first-touchdown prices for games that do not have them yet (and anytime too where that is missing)
-        todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("f") and not (store.get(r.game_id) or {}).get("ftry")]
-    else:
-        todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("b")]
-    if limit:
-        todo = todo[:limit]
-    slots = {}
-    for r in todo:
-        ko = datetime.strptime(f"{r.gameday} {r.gametime}", "%Y-%m-%d %H:%M").replace(tzinfo=ET)
-        slots.setdefault(ko - timedelta(minutes=lead), []).append(r)
-    cost = 10 * len(todo) + len(slots)
-    print(f"{len(g)} finished games ({season - back}-{season}), {len(g) - len(todo)} already have prices. To fetch: {len(todo)} games in {len(slots)} kickoff slots.")
-    print(f"Estimated cost: about {cost} requests (10 per game + 1 per slot).")
-    if not todo:
-        return
-    if not go:
-        print("Nothing spent yet. Run again with --backfill --yes to pull them.")
-        return
-    got = spent = 0
-    left = None
-    for when, rows in sorted(slots.items()):
-        stamp = when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        try:
-            raw, hd = get(f"{ODDS_API.replace('/v4/', '/v4/historical/')}/events?apiKey={key}&date={stamp}", 60, headers=True)
-            events = json.loads(raw).get("data") or []
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", "ignore")[:300].replace(key, "***")
-            sys.exit(f"The Odds API refused the historical request ({e.code}). Historical prices need a paid plan.\n{body}")
-        except Exception as e:
-            sys.exit(f"Could not reach The Odds API: {str(e).replace(key, '***')}")
-        ids = {(TEAM_NAMES.get(e.get("away_team")), TEAM_NAMES.get(e.get("home_team"))): e["id"] for e in events}
-        for r in rows:
-            eid = ids.get((r.away_team, r.home_team))
-            if not eid:
-                print(f"  {r.game_id}: not listed at {stamp}", file=sys.stderr)
-                continue
-            try:
-                old_rec = store.get(r.game_id) or {}
-                mk = "player_anytime_td" if not first else "player_1st_td" if old_rec.get("b") else "player_anytime_td,player_1st_td"
-                if two:
-                    mk = "player_tds_over" if old_rec.get("b") else "player_anytime_td,player_tds_over"
-                raw, hd = get(f"{ODDS_API.replace('/v4/', '/v4/historical/')}/events/{eid}/odds?apiKey={key}&regions=us&markets={mk}"
-                              f"&oddsFormat=american&date={stamp}", 60, headers=True)
-            except urllib.error.HTTPError as e:
-                print(f"  {r.game_id}: {e.code} {e.read().decode('utf-8', 'ignore')[:200].replace(key, '***')}", file=sys.stderr)
-                continue
-            except Exception as e:
-                print(f"  {r.game_id}: {str(e).replace(key, '***')}", file=sys.stderr)
-                continue
-            doc = json.loads(raw)
-            books = parse_td(doc.get("data") or {})
-            ftd = parse_td(doc.get("data") or {}, "player_1st_td") if first else {}
-            if two:
-                first, ftd = True, parse_two(doc.get("data") or {})      # stored below under "t" in place of "f"
-            left = hd.get("x-requests-remaining")
-            snap = doc.get("timestamp") or stamp
-            at = datetime.fromisoformat(snap.replace("Z", "+00:00")).astimezone(ET).strftime("%Y-%m-%dT%H:%M")
-            rec = dict(old_rec)
-            if books and not rec.get("b"):
-                rec.update({"at": at, "b": books, "hist": 1})
-            if two:
-                rec.update({"t": ftd} if ftd else {"ttry": 1})
-            elif first:
-                rec.update({"f": ftd} if ftd else {"ftry": 1})      # ftry: asked once, market was not there
-            if books or ftd or first:
-                store[r.game_id] = rec
-                got += 1 if (books or ftd) else 0
-                books = ftd if first else books
-                with open(ODDS, "w", encoding="utf-8") as f:      # save as we go, so a stop loses nothing
-                    json.dump(store, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
-            print(f"  {r.game_id}: {len(books)} books" + (f"  ({left} requests left)" if left else ""), flush=True)
-            if left is not None and float(left) < 50:
-                print("Request allowance nearly used; stopping. Run again later to continue where this left off.")
-                return
-            time.sleep(0.3)
-    print(f"Stored prices for {got} games in {ODDS}. Rebuild the dashboard (Refresh, or --html {HTML}) and the Tracker will grade them.")
-
-
-# ---------- writing and serving ----------
-def embedded(path):
+        pass
+    before = json.dumps(flags, sort_keys=True)
+    today = datetime.now(ET).strftime("%Y-%m-%d")
+    for u in sched:
+        if u["d"] != today:
+            continue
+        key = f"{u['d']}|{u['a']}|{u['h']}"
+        rec = flags.get(key, {})
+        if inj is not None and not (u.get("lv") and rec.get("inj") is not None):  # freeze designations at tip
+            rec["inj"] = {t: [[x["n"], x["st"], x["ty"]] for x in inj.get(t, [])] for t in (u["a"], u["h"]) if inj.get(t)}
+        if u.get("lu"):
+            rec["lu"] = u["lu"]
+        if rec:
+            flags[key] = rec
     try:
-        m = re.search(r'<script id="%s" type="application/json">(.*?)</script>' % TAG, open(path, encoding="utf-8").read(), re.S)
+        remember_positions(flags, sched, games)
+    except Exception as e:
+        print(f"positions unavailable: {e}", file=sys.stderr)
+    if json.dumps(flags, sort_keys=True) != before:
+        with open(FLAGS, "w", encoding="utf-8") as f:
+            json.dump(flags, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+    return flags
+
+
+def embedded(path):
+    """Data already inside the dashboard file, or None."""
+    try:
+        page = open(path, encoding="utf-8").read()
+        m = re.search(r'<script id="tipoff-data" type="application/json">(.*?)</script>', page, re.S)
         return json.loads(m.group(1))
     except Exception:
         return None
 
 
+def make(source, season, prev=False, html=None):
+    """Build the dashboard data.
+
+    github: one season from the archive (plus the one before it with prev=True).
+    nba:    the season in progress from the NBA API, the upcoming week's schedule, and the
+            previous season from the archive so early-season numbers have history behind them.
+    """
+    yr = season or current_season()
+    frames, sched, notes = [], [], []
+    old_games, old_players, old = [], {}, None
+    if source == "nba":
+        cur, sched = load_nba(yr)
+        if cur is not None:
+            frames.append(cur)
+        else:
+            notes.append(f"No finished {label(yr)} games yet")
+        # earlier seasons: reuse what the dashboard file already holds, else fetch the archive
+        old = embedded(html) if html else None
+        if old:
+            old_games = [g for g in old.get("games", []) if g.get("s", yr - 1) < yr]
+            old_players = old.get("players", {})
+        if not old_games:
+            for back in (1, 2):
+                try:
+                    frames.insert(0, load_github(yr - back))
+                except RuntimeError as e:
+                    notes.append(str(e))
+    else:
+        tries = [yr] if season else [yr, yr - 1]
+        for y in tries:
+            try:
+                frames.append(load_github(y))
+                yr = y
+                break
+            except RuntimeError as e:
+                notes.append(str(e))
+        if prev and frames:
+            try:
+                frames.insert(0, load_github(yr - 1))
+            except RuntimeError as e:
+                notes.append(str(e))
+    if not frames and not old_games:
+        raise RuntimeError("; ".join(notes) or "No play-by-play found")
+    games, players = build(pd.concat(frames, ignore_index=True)) if frames else ([], {})
+    games = old_games + games
+    players = {**old_players, **players}
+    games.sort(key=lambda x: (x["d"], x["id"]))
+    seasons = sorted({g["s"] for g in games})
+    out = {"season": " + ".join(label(y) for y in seasons), "seasons": seasons, "source": source,
+           "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
+           "through": games[-1]["d"], "nShots": N_SHOTS, "sched": sched, "players": players, "games": games}
+    if source == "nba":
+        inj = load_injuries()
+        if inj is not None:
+            out["inj"] = inj
+        out["flags"] = remember_flags(sched, inj, old, games)
+        out["odds"] = remember_odds(sched, old)
+        try:  # picks and game numbers locked at tip by lock_picks.js; carried along so the page has them even if that step is skipped
+            with open(PICKS, encoding="utf-8") as f:
+                out["locks"] = json.load(f)
+        except Exception:
+            if (old or {}).get("locks"):
+                out["locks"] = old["locks"]
+    if notes:
+        out["note"] = "; ".join(notes)
+    return out
+
+
 def write_html(path, out):
     page = open(path, encoding="utf-8").read()
     blob = json.dumps(out, separators=(",", ":"), ensure_ascii=False).replace("</", "<\\/")
-    pat = re.compile(r'(<script id="%s" type="application/json">).*?(</script>)' % TAG, re.S)
+    pat = re.compile(r'(<script id="tipoff-data" type="application/json">).*?(</script>)', re.S)
     if not pat.search(page):
-        raise RuntimeError(f"{path} has no {TAG} block to refresh")
+        raise RuntimeError(f"{path} has no tipoff-data block to refresh")
     with open(path, "w", encoding="utf-8") as f:
         f.write(pat.sub(lambda m: m.group(1) + blob + m.group(2), page, count=1))
 
 
 def serve(a):
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    html = a.html or HTML
+    html = a.html or "tipoff_ledger.html"
     if not os.path.exists(html):
         sys.exit(f"Put {html} in the same folder as this script, then run it again.")
     lock = threading.Lock()
 
-    def refresh(prices_only=False):
-        old = embedded(html)
-        if prices_only and old:
-            old["odds"] = remember_odds(old.get("sched") or [], old, force=True)
-            out = old
-        else:
-            out = make(a.season, old)
+    def refresh():
+        out = make(a.source, a.season, a.prev, html)
         write_html(html, out)
-        print(f"{datetime.now(ET):%b %d %H:%M} refreshed: through {out['through']}, {len(out['sched'])} games listed, "
-              f"{sum(1 for k, v in out['odds'].items() if k != '_meta' and v.get('b'))} with prices", flush=True)
+        print(f"{datetime.now(ET):%b %d %H:%M} refreshed: {len(out['games'])} games through {out['through']}, "
+              f"{len(out['sched'])} scheduled", flush=True)
         return out
 
-    def keep_fresh():
+    def keep_fresh():  # on start, then every few hours, with nobody pressing anything
         while True:
             with lock:
                 try:
@@ -1078,19 +1021,14 @@ def serve(a):
                 self.send(404, b"not found", "text/plain")
 
         def do_POST(self):
-            if self.path == "/key":
-                k = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode().strip()
-                if not re.fullmatch(r"[A-Za-z0-9]{16,64}", k):
-                    return self.send(200, json.dumps({"error": "That does not look like an Odds API key"}).encode(), "application/json")
-                with open("odds_key.txt", "w", encoding="utf-8") as f:
-                    f.write(k)
-            elif self.path not in ("/refresh", "/prices"):
+            if self.path != "/refresh":
                 return self.send(404, b"not found", "text/plain")
             if not lock.acquire(blocking=False):
                 return self.send(200, json.dumps({"error": "A refresh is already running"}).encode(), "application/json")
             try:
-                body = json.dumps(refresh(self.path != "/refresh"), separators=(",", ":"), ensure_ascii=False).encode()
-            except Exception as e:
+                out = refresh()
+                body = json.dumps(out, separators=(",", ":"), ensure_ascii=False).encode()
+            except Exception as e:  # keep the page usable with the data it already has
                 print(f"refresh failed: {e}", file=sys.stderr)
                 body = json.dumps({"error": str(e)}).encode()
             finally:
@@ -1101,10 +1039,8 @@ def serve(a):
             pass
 
     url = f"http://localhost:{a.port}/"
-    if port_open(a.port):
-        sys.exit(f"Port {a.port} is already in use (another ledger?). Try  --serve --port {a.port + 1}")
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), H)
-    print(f"Touchdown Ledger is at {url}  (Ctrl+C to stop)", flush=True)
+    print(f"Tip-Off Ledger is at {url}  (Ctrl+C to stop)", flush=True)
     if a.every:
         threading.Thread(target=keep_fresh, daemon=True).start()
     if not a.no_open:
@@ -1115,9 +1051,9 @@ def serve(a):
         pass
 
 
-HOME_DIR = os.path.join(os.path.expanduser("~"), "TouchdownLedger")
-PLIST = os.path.join(os.path.expanduser("~"), "Library", "LaunchAgents", "com.touchdownledger.plist")
-WIN_START = os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "TouchdownLedger.bat")
+HOME_DIR = os.path.join(os.path.expanduser("~"), "TipOffLedger")
+PLIST = os.path.join(os.path.expanduser("~"), "Library", "LaunchAgents", "com.tipoffledger.plist")
+WIN_START = os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "TipOffLedger.bat")
 
 
 def port_open(port):
@@ -1127,22 +1063,21 @@ def port_open(port):
 
 
 def install(a):
-    """Copy the dashboard to ~/TouchdownLedger and have it start at login and refresh itself."""
+    """Copy the dashboard to ~/TipOffLedger and have it start at login and refresh itself."""
     here = os.path.dirname(os.path.abspath(__file__))
     os.makedirs(HOME_DIR, exist_ok=True)
-    for name in (os.path.basename(__file__), HTML, "odds_key.txt", "odds.json"):
+    for name in (os.path.basename(__file__), "tipoff_ledger.html"):
         src, dst = os.path.join(here, name), os.path.join(HOME_DIR, name)
         if os.path.exists(src) and os.path.abspath(src) != os.path.abspath(dst):
             shutil.copy2(src, dst)
     script = os.path.join(HOME_DIR, os.path.basename(__file__))
-    if not os.path.exists(os.path.join(HOME_DIR, HTML)):
-        sys.exit(f"{HTML} needs to be in the same folder as this script. Put it there and run this again.")
-    need = []
-    for mod, pkg in (("pandas", "pandas"), ("pyarrow", "pyarrow"), ("certifi", "certifi")):
-        try:
-            __import__(mod)
-        except ImportError:
-            need.append(pkg)
+    if not os.path.exists(os.path.join(HOME_DIR, "tipoff_ledger.html")):
+        sys.exit("tipoff_ledger.html needs to be in the same folder as this script. Put it there and run this again.")
+    try:
+        import certifi  # noqa: F401
+        need = [] if pd is not None else ["pandas"]
+    except ImportError:
+        need = ["certifi"] + ([] if pd is not None else ["pandas"])
     if need:
         print(f"Installing {' and '.join(need)} (one time)...")
         base = [sys.executable, "-m", "pip", "install", "--user", "--quiet"] + need
@@ -1150,11 +1085,6 @@ def install(a):
             sys.exit(f"Could not install {' '.join(need)}. Run:  python3 -m pip install {' '.join(need)}   then run this again.")
     url = f"http://localhost:{a.port}/"
     cmd = [sys.executable, script, "--serve", "--no-open", "--port", str(a.port)]
-    if sys.platform == "darwin" and os.path.exists(PLIST):     # stop an earlier copy of this ledger before checking the port
-        subprocess.call(["launchctl", "unload", PLIST], stderr=subprocess.DEVNULL)
-        time.sleep(1)
-    if port_open(a.port):
-        sys.exit(f"Something else is already using port {a.port} (another ledger?). Run this again with a free one, e.g.  --install --port {a.port + 1}")
     if sys.platform == "darwin":
         os.makedirs(os.path.dirname(PLIST), exist_ok=True)
         args = "".join(f"<string>{c}</string>" for c in cmd)
@@ -1162,7 +1092,7 @@ def install(a):
         with open(PLIST, "w") as f:
             f.write('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
                     '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>'
-                    f'<key>Label</key><string>com.touchdownledger</string><key>ProgramArguments</key><array>{args}</array>'
+                    f'<key>Label</key><string>com.tipoffledger</string><key>ProgramArguments</key><array>{args}</array>'
                     '<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>'
                     f'<key>WorkingDirectory</key><string>{HOME_DIR}</string>'
                     f'<key>StandardOutPath</key><string>{log}</string><key>StandardErrorPath</key><string>{log}</string>'
@@ -1176,7 +1106,8 @@ def install(a):
             f.write(f'@echo off\nstart "" "{pyw}" "{script}" --serve --no-open --port {a.port}\n')
         subprocess.Popen([pyw] + cmd[1:], cwd=HOME_DIR, creationflags=0x00000008)
     else:
-        subprocess.Popen(cmd, cwd=HOME_DIR, start_new_session=True, stdout=open(os.path.join(HOME_DIR, "ledger.log"), "a"), stderr=subprocess.STDOUT)
+        subprocess.Popen(cmd, cwd=HOME_DIR, start_new_session=True,
+                         stdout=open(os.path.join(HOME_DIR, "ledger.log"), "a"), stderr=subprocess.STDOUT)
         print("Started for this session. Add this to your login items to keep it:\n  " + " ".join(cmd))
     for _ in range(40):
         if port_open(a.port):
@@ -1184,8 +1115,8 @@ def install(a):
         time.sleep(0.5)
     else:
         sys.exit(f"Set up, but the dashboard did not start. See {os.path.join(HOME_DIR, 'ledger.log')}")
-    print(f"\nDone. Touchdown Ledger is at {url}\nBookmark that address. It starts when you log in and refreshes itself every {a.every:g} hours.\n"
-          f"The first refresh downloads about 90 MB of play-by-play; reload the page in a few minutes.")
+    print(f"\nDone. Tip-Off Ledger is at {url}\nBookmark that address. It starts when you log in and refreshes itself every two hours.\n"
+          f"The first refresh is running now; reload the page in a minute or two.")
     if not a.no_open:
         webbrowser.open(url)
 
@@ -1201,42 +1132,44 @@ def uninstall(a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--season", type=int, help="year the season starts; default is the season in progress")
+    ap.add_argument("--source", choices=["github", "nba"])
+    ap.add_argument("--season", type=int)
     ap.add_argument("--out", default="data.json")
-    ap.add_argument("--html", help="dashboard file to refresh in place")
-    ap.add_argument("--serve", action="store_true")
-    ap.add_argument("--install", action="store_true")
+    ap.add_argument("--html", help="standalone dashboard file to refresh in place")
+    ap.add_argument("--prev", action="store_true", help="github source: also include the season before")
+    ap.add_argument("--serve", action="store_true", help="open the dashboard with a working Refresh button")
+    ap.add_argument("--install", action="store_true", help="one-time setup: start at login and refresh by itself")
     ap.add_argument("--uninstall", action="store_true")
-    ap.add_argument("--every", type=float, default=4, help="hours between automatic refreshes while serving (0 = off)")
-    ap.add_argument("--port", type=int, default=8767)
+    ap.add_argument("--every", type=float, default=2, help="hours between automatic refreshes while serving (0 = off)")
+    ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-open", action="store_true")
-    ap.add_argument("--backfill", action="store_true", help="pull pre-kickoff prices for this season's finished games (paid Odds API plan)")
-    ap.add_argument("--yes", action="store_true", help="with --backfill: actually spend the requests")
-    ap.add_argument("--lead", type=int, default=60, help="with --backfill: minutes before kickoff to take the prices from")
-    ap.add_argument("--limit", type=int, help="with --backfill: only the first N games (to test cheaply)")
-    ap.add_argument("--last-season", action="store_true", help="with --backfill: also last season's games")
-    ap.add_argument("--first-td", action="store_true", help="with --backfill: first-touchdown prices for this season's games")
+    ap.add_argument("--backfill-odds", type=int, metavar="SEASON", help="fill odds.json with a past season's first-basket prices (paid Odds API key)")
+    ap.add_argument("--max-credits", type=int, default=0, help="with --backfill-odds: stop after using this many credits (0 = no limit)")
     a = ap.parse_args()
     if a.install:
         return install(a)
     if a.uninstall:
         return uninstall(a)
+    if a.backfill_odds:
+        return backfill_odds(a.backfill_odds, a.html or "tipoff_ledger.html", a.max_credits)
     if pd is None:
         sys.exit("pandas is missing. Run:  python3 build_data.py --install")
-    if a.backfill:
-        os.chdir(os.path.dirname(os.path.abspath(__file__)))
-        return backfill(a.season, a.lead, a.yes, a.limit, back=1 if a.last_season else 0, first=a.first_td)
     if a.serve:
+        a.source = a.source or "nba"
         return serve(a)
+    a.source = a.source or "github"
     try:
-        out = make(a.season, embedded(a.html) if a.html else None)
-        with open(a.out, "w", encoding="utf-8") as f:
+        out = make(a.source, a.season, a.prev, a.html)
+        with open(a.out, "w") as f:
             json.dump(out, f, separators=(",", ":"), ensure_ascii=False)
         if a.html:
             write_html(a.html, out)
+            print(f"refreshed {a.html}")
     except RuntimeError as e:
         sys.exit(str(e))
-    print(f"through {out['through']}: {len(out['sched'])} upcoming games, {len(out['picks'])} players priced -> {a.out} ({os.path.getsize(a.out) / 1024:.0f} KB)")
+    tips = sum(1 for g in out["games"] if g["tip"])
+    print(f"{len(out['games'])} games, {tips} with an opening tip, {len(out['players'])} players -> {a.out} "
+          f"({os.path.getsize(a.out) / 1024:.0f} KB), through {out['through']}")
 
 
 if __name__ == "__main__":
