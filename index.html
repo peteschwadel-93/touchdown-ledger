@@ -550,6 +550,12 @@ function mvNet(list){var by={},order=[];list.forEach(function(r){var k=r[1]+"|"+
   return order.map(function(k){var z=by[k],cs=Object.keys(z.c).map(function(x){return z.c[x]}).filter(function(c){return !((c[0]==="inj"||c[0]==="fd"||c[0]==="price")&&c[1]===c[2])});
     return{r:z.r,a:z.a,b:z.b,n:z.n,at:z.at,c:cs}})}
 function mvTime(at){var d=new Date(String(at).replace("Z",":00Z"));return isNaN(d)?at:d.toLocaleString([],{weekday:"short",hour:"numeric",minute:"2-digit"})}
+/* Movers columns: [label, sort value, tooltip, class, first-click direction]. No column chosen = status changes first, then the biggest moves. */
+var MVR={pick:4,hot:3,"–":2,none:1,off:0};
+var MVC=[["Time",function(x){return x.at},"","",-1],["Team",function(x){return x.r[4]},"","",1],["Player",function(x){return x.r[3]},"","",1],["Opponent",function(x){return x.r[5]},"","",1],
+  ["Price now",function(x){var pr=mvPr(x.b);return pr?dec(pr.a):null},"","n",-1],["Chance",function(x){return x.b?x.b[0]:null},"Chance before → after","n",-1],
+  ["Moved",function(x){return x.mv},"Change in chance, in points","n",-1],["Edge",function(x){return x.eb},"Edge before → now","n",-1],
+  ["Status",function(x){return (x.sa!==x.sb?10:0)+MVR[x.sb]},"Sorts status changes first, then Picks","",-1],["What changed",function(x){return x.c.length},"Sorts by how many causes","",-1]];
 function vMovers(){
   var L=D.movers||[],wl={};L.forEach(function(r){var w=wkOf(r[1]);if(w.s===D.season)wl[w.w]=1});wl=Object.keys(wl).map(Number).sort(function(a,b){return a-b});
   if(wl.indexOf(S.mwk)<0)S.mwk=wl.indexOf(S.wk)>=0?S.wk:wl.length?wl[wl.length-1]:null;
@@ -558,6 +564,7 @@ function vMovers(){
   var rows=every?list.map(function(r){return{r:r,a:r[7],b:r[8],n:1,at:r[0],c:r[9]}}).reverse():mvNet(list);
   rows.forEach(function(x){x.sa=mvSt(x.a);x.sb=mvSt(x.b);x.mv=x.a&&x.b?x.b[0]-x.a[0]:null;x.ea=mvEv(x.a);x.eb=mvEv(x.b)});
   if(!every)rows.sort(function(x,y){return (y.sa!==y.sb)-(x.sa!==x.sb)||Math.abs(y.mv||0)-Math.abs(x.mv||0)});
+  var ms=S.msort;if(ms){var fn=MVC[ms[0]][1];rows.sort(function(a,b){var x=fn(a),y=fn(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return (typeof x==="string"?x.localeCompare(y):x-y)*ms[1]})}
   var up=rows.filter(function(x){return x.mv>0.0005}).length,dn=rows.filter(function(x){return x.mv<-0.0005}).length,flips=rows.filter(function(x){return x.sa!==x.sb}).length;
   rows=rows.filter(function(x){return f==="all"||(f==="flip"?x.sa!==x.sb:x.sb==="pick")});
   var h='<section class="panel"><div class="phead"><h2>Movers'+(S.mwk!=null?" · "+wkFull(D.season,S.mwk):"")+'</h2><div class="filters">'+
@@ -566,7 +573,7 @@ function vMovers(){
   h+='<p class="note">Every refresh (hourly, every 15 minutes on game days) compares each player in games still to start with the refresh before and records what moved: his chance to score, the best and FanDuel prices, his own injury tag, teammates ruled out or back, and his team\'s betting line. <b>Status</b> is whether he passes the Ledger pick rule before and after: a chance that rises at an unchanged price can push the edge past +25% and turn a Pick into Too good?. Edges are at '+(S.book==="FanDuel"?"FanDuel":"the best price")+' (choose FanDuel in the Book menu to see its numbers; other books use the best price here). <b>One a player</b> nets the week into one row, from his first logged change to now; <b>Every change</b> lists each refresh on its own row. Nothing is recorded once a game has started.</p>';
   if(!rows.length)return h+'<p class="empty">'+(L.length?"Nothing in this view.":"No changes logged yet. The log starts with the first refresh after this update, so the first movers show up an hour or so later.")+"</p></section>";
   var pc=function(s){return s&&s[0]!=null?pct(s[0],1):"–"};
-  h+='<div class="tw"><table class="mov"><thead><tr><th>'+(every?"Time":"Last change")+'</th><th>Team</th><th>Player</th><th>Opponent</th><th class="n">Price now</th><th class="n">Chance</th><th class="n">Moved</th><th class="n">Edge</th><th>Status</th>'+"<th>What changed</th></tr></thead><tbody>";
+  h+='<div class="tw"><table class="mov"><thead><tr>'+MVC.map(function(c,i){return '<th tabindex="0" data-ms="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(ms&&ms[0]===i?' aria-sort="'+(ms[1]>0?"ascending":"descending")+'"':"")+">"+(i===0&&!every?"Last change":c[0])+"</th>"}).join("")+"</tr></thead><tbody>";
   rows.forEach(function(x){var r=x.r,id=r[1]+"|"+r[2],row=rowOf(id),g=gm(r[1]),pr=mvPr(x.b),flip=x.sa!==x.sb;
     h+="<tr"+(flip?' class="flip"':"")+"><td>"+esc(mvTime(x.at))+(every||x.n<2?"":'<span class="o sm">'+x.n+" changes</span>")+"</td><td>"+tmL(r[4])+'</td><td><span class="tag pos">'+r[6]+"</span> "+(row?'<button class="lnk" type="button" data-open="'+esc(id)+'">'+esc(r[3])+"</button>"+(row._top?' <span class="tag t8">Top 8</span>':""):'<span class="pn">'+esc(r[3])+"</span>")+'</td><td><span class="o">'+(g&&g.h===r[4]?"vs ":"@ ")+esc(r[5])+"</span></td>"+
       '<td class="n">'+(pr?fmtA(pr.a)+" "+bkAb(pr.bk):"–")+'</td><td class="n"><span class="o">'+pc(x.a)+' →</span> <b>'+pc(x.b)+'</b></td><td class="n">'+(x.mv==null||Math.abs(x.mv)<0.0005?'<span class="o">–</span>':'<b class="'+(x.mv>0?"pos":"neg")+'">'+(x.mv>0?"▲ +":"▼ −")+(Math.abs(x.mv)*100).toFixed(1)+"</b>")+'</td><td class="n"><span class="o">'+evTxt(x.ea)+' →</span> <span class="ev '+evCls(x.eb)+'">'+evTxt(x.eb)+"</span></td><td>"+(flip?MVST[x.sa]+' <span class="o">→</span> '+MVST[x.sb]:MVST[x.sb])+"</td>"+
@@ -822,6 +829,7 @@ document.addEventListener("click",function(e){
   if(t.closest("#betImport")){$("betFile").click();return}
   if(t.closest("form,input,textarea,select,details.how,.det"))return;
   if((b=t.closest("th[data-bs]"))){var bi=+b.dataset.bs;S.bsort=S.bsort&&S.bsort[0]===bi?[bi,-S.bsort[1]]:[bi,bi<3?1:-1];render(true);return}
+  if((b=t.closest("th[data-ms]"))){var mi=+b.dataset.ms,cur=S.msort;S.msort=cur&&cur[0]===mi?(cur[1]===MVC[mi][4]?[mi,-cur[1]]:null):[mi,MVC[mi][4]];render(true);return}
   if((b=t.closest("th[data-fs]"))){var fi=+b.dataset.fs,fs=S.fsort||[0,-1];S.fsort=fs[0]===fi?[fi,-fs[1]]:[fi,FC[fi][4]];render(true);return}
   if((b=t.closest("th[data-gs]"))){var gi=+b.dataset.gs;S.gsort=S.gsort&&S.gsort[0]===gi?[gi,-S.gsort[1]]:[gi,gi<1?1:-1];render(true);return}
   if((b=t.closest("th[data-ps]"))){S.psort=setSort(S.psort,+b.dataset.ps);render(true);return}
