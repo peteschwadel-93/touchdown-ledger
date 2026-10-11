@@ -51,13 +51,17 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           ODDS_BACKFILL: ${{ inputs.past_prices == 'this season' && '1' || inputs.past_prices == 'this season and last season' && '2' || inputs.past_prices == 'this season first TD' && '3' || inputs.past_prices == 'this season 2+ TD' && '4' || inputs.past_prices == 'this season and last season 2+ TD' && '5' || '' }}
         run: python build_data.py --out data.json
-      - name: Keep the price record
+      - name: Keep the price record and the movers log
         run: |
-          if [ -f odds.json ] && [ -n "$(git status --porcelain odds.json)" ]; then
+          files=""
+          for f in odds.json movers.json; do
+            if [ -f "$f" ] && [ -n "$(git status --porcelain "$f")" ]; then files="$files $f"; fi
+          done
+          if [ -n "$files" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add odds.json
-            git commit -m "Prices $(date -u +%Y-%m-%dT%H:%MZ)"
+            git add $files
+            git commit -m "Prices and movers $(date -u +%Y-%m-%dT%H:%MZ)"
             git push
           fi
       - name: Assemble site
