@@ -185,6 +185,7 @@ ul.pwarn{margin:0;padding:10px 12px 10px 28px;border:1px solid color-mix(in srgb
 .paddrow{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}.paddrow .addb{padding-left:0}
 .dot.p{background:#7cc4ff}.legsx{white-space:nowrap}.legsx .o{margin:0 6px}.slipbox>*{flex-shrink:0}.legsx .lw{color:var(--made)}.legsx .ll{color:var(--miss);text-decoration:line-through}
 @media(max-width:600px){.slip{right:12px;left:12px;bottom:12px;display:flex;justify-content:flex-end}.slipbox{width:100%}}
+table.mov td,table.mov th{padding:9px 10px}table.mov td{vertical-align:middle}table.mov .sm{display:block;font-size:11.5px}table.mov td.why{white-space:normal;min-width:230px;font-size:13px;color:var(--soft);line-height:1.55}table.mov td.why b{color:var(--ink);font-weight:600}table.mov tr.flip>td{background:color-mix(in srgb,var(--accent) 7%,transparent)}table.mov tr.flip>td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 </style>
 
 <div class="wrap">
@@ -207,6 +208,7 @@ ul.pwarn{margin:0;padding:10px 12px 10px 28px;border:1px solid color-mix(in srgb
       <button role="tab" data-tab="picks">Picks</button>
       <button role="tab" data-tab="games">Games</button>
       <button role="tab" data-tab="feed">TD Feed</button>
+      <button role="tab" data-tab="movers">Movers</button>
       <button role="tab" data-tab="players">Players</button>
       <button role="tab" data-tab="teams">Teams</button>
       <button role="tab" data-tab="tracker">Tracker</button>
@@ -523,6 +525,54 @@ function vFeed(){
     h+='<tr class="'+(e.first?"scf":e.row&&(e.row._pick||e.row._top)?"sc":"")+(e.nth>=2?" m2":"")+'"><td>'+esc(stamp)+'</td><td>'+(e.team?tmL(e.team):"")+'</td><td>'+(e.pos?'<span class="tag pos">'+e.pos+"</span> ":"")+'<span class="pn">'+esc(e.name)+"</span>"+(e.first?' <span class="tag fst">First TD</span>':"")+(e.row?pickTag0(e.row)+(e.row._twt?' <span class="tag t2p" title="One of this week\'s 2+ TD picks">2+ TD pick</span>':""):"")+'</td><td><span class="o">'+(e.team?(e.team===e.g.h?"vs "+e.g.a:"@ "+e.g.h):e.g.a+" @ "+e.g.h)+"</span></td><td>"+esc(when)+(e.st==="post"&&!e.past?' <span class="o">· final</span>':"")+"</td><td>"+e.kind+'</td><td class="n">'+e.nth+'</td><td class="n k">'+(e.p!=null?"<b>"+pct(e.p,1)+"</b>":"–")+'</td><td class="n k">'+(e.p!=null?amer(e.p):"–")+'</td><td class="n">'+(e.pr?fmtA(e.pr.a)+" "+bkAb(e.pr.bk):"–")+'</td><td class="n k"><span class="ev '+evCls(e.ev)+'">'+evTxt(e.ev)+'</span></td><td class="n">'+(e.kel==null?"–":e.kel>0?(e.kel*100).toFixed(1)+"%":"0")+'</td><td class="n">'+(e.units!=null?"+"+f2(e.units):"–")+"</td></tr>"});
   return h+"</tbody></table></div></section>"}
 
+/* ---------- Movers ---------- */
+/* Each build compares every player in games still to start with the build before (build_data.py, movers.json) and logs what moved.
+   Row: [time, game, player id, name, team, opponent, pos, before, after, causes]; before/after = [chance, team TDs, best price, best book,
+   FanDuel price, status], null when he was not on the board. Edges use FanDuel when that book is chosen, otherwise the best price. */
+function mvPr(s){if(!s)return null;return S.book==="FanDuel"?(s[4]!=null?{a:s[4],bk:"FanDuel"}:null):(s[2]!=null?{a:s[2],bk:s[3]}:null)}
+function mvEv(s){var pr=mvPr(s);return pr&&s[0]!=null?s[0]*dec(pr.a)-1:null}
+function mvSt(s){if(!s)return"off";var e=mvEv(s);if(e==null)return"none";return s[0]>=PK.p&&e>=PK.lo&&e<=PK.hi?"pick":e>PK.hi&&s[0]>=0.08?"hot":"–"}
+var MVST={pick:'<span class="tag pk">Pick</span>',hot:'<span class="tag hot">Too good?</span>',off:'<span class="o">off board</span>',none:'<span class="o">no price</span>',"–":'<span class="o">–</span>'};
+function mvCause(c){var k=c[0],A=function(x){return x==null?"no price":fmtA(x)};
+  if(k==="line")return"<b>Team line</b> "+(c[1][0]!==c[1][1]?f2(c[1][0],1)+" → "+f2(c[1][1],1)+" implied points · ":"")+"team TDs "+f2(c[2][0])+" → "+f2(c[2][1]);
+  if(k==="mates")return(c[1].length?"<b>Teammates out</b> "+esc(c[1].join(", ")):"")+(c[1].length&&c[2].length?" · ":"")+(c[2].length?"<b>Teammates back</b> "+esc(c[2].join(", ")):"");
+  if(k==="inj")return"<b>His status</b> "+esc(c[1]||"no tag")+" → "+esc(c[2]||"no tag");
+  if(k==="price")return"<b>Best price</b> "+A(c[1])+(c[1]!=null&&c[3]?" "+bkAb(c[3]):"")+" → "+A(c[2])+(c[2]!=null&&c[4]?" "+bkAb(c[4]):"");
+  if(k==="fd")return"<b>FanDuel</b> "+A(c[1])+" → "+A(c[2]);
+  if(k==="new")return"<b>Added</b> to the board";
+  if(k==="gone")return"<b>Off the board</b> · ruled out or no longer listed";
+  return"<b>Model inputs</b> · who is dressed or usage"}
+/* one row per player for the week: first state, last state, and each cause from its first value to its last */
+function mvNet(list){var by={},order=[];list.forEach(function(r){var k=r[1]+"|"+r[2];if(!by[k]){by[k]={r:r,a:r[7],b:r[8],n:0,at:r[0],c:{}};order.push(k)}var z=by[k];z.b=r[8];z.n++;z.at=r[0];
+    r[9].forEach(function(c){var o=z.c[c[0]];if(!o){z.c[c[0]]=JSON.parse(JSON.stringify(c));return}
+      if(c[0]==="line"){o[1][1]=c[1][1];o[2][1]=c[2][1]}else if(c[0]==="mates"){var out=o[1].concat(c[1]).filter(function(x){return c[2].indexOf(x)<0}),back=o[2].concat(c[2]).filter(function(x){return c[1].indexOf(x)<0});o[1]=out.filter(function(x,i){return out.indexOf(x)===i});o[2]=back.filter(function(x,i){return back.indexOf(x)===i})}
+      else if(c[0]==="inj"||c[0]==="fd"){o[2]=c[2]}else if(c[0]==="price"){o[2]=c[2];o[4]=c[4]}})});
+  return order.map(function(k){var z=by[k],cs=Object.keys(z.c).map(function(x){return z.c[x]}).filter(function(c){return !((c[0]==="inj"||c[0]==="fd"||c[0]==="price")&&c[1]===c[2])});
+    return{r:z.r,a:z.a,b:z.b,n:z.n,at:z.at,c:cs}})}
+function mvTime(at){var d=new Date(String(at).replace("Z",":00Z"));return isNaN(d)?at:d.toLocaleString([],{weekday:"short",hour:"numeric",minute:"2-digit"})}
+function vMovers(){
+  var L=D.movers||[],wl={};L.forEach(function(r){var w=wkOf(r[1]);if(w.s===D.season)wl[w.w]=1});wl=Object.keys(wl).map(Number).sort(function(a,b){return a-b});
+  if(wl.indexOf(S.mwk)<0)S.mwk=wl.indexOf(S.wk)>=0?S.wk:wl.length?wl[wl.length-1]:null;
+  if(S.mwk!=null&&weeks().indexOf(S.mwk)>=0)weekPicks(D.season,S.mwk);   /* marks Pick / Top 8 on the rows */
+  var list=L.filter(function(r){var w=wkOf(r[1]);return w.s===D.season&&w.w===S.mwk}),every=S.mvr==="every",f=S.mvs||"all";
+  var rows=every?list.map(function(r){return{r:r,a:r[7],b:r[8],n:1,at:r[0],c:r[9]}}).reverse():mvNet(list);
+  rows.forEach(function(x){x.sa=mvSt(x.a);x.sb=mvSt(x.b);x.mv=x.a&&x.b?x.b[0]-x.a[0]:null;x.ea=mvEv(x.a);x.eb=mvEv(x.b)});
+  if(!every)rows.sort(function(x,y){return (y.sa!==y.sb)-(x.sa!==x.sb)||Math.abs(y.mv||0)-Math.abs(x.mv||0)});
+  var up=rows.filter(function(x){return x.mv>0.0005}).length,dn=rows.filter(function(x){return x.mv<-0.0005}).length,flips=rows.filter(function(x){return x.sa!==x.sb}).length;
+  rows=rows.filter(function(x){return f==="all"||(f==="flip"?x.sa!==x.sb:x.sb==="pick")});
+  var h='<section class="panel"><div class="phead"><h2>Movers'+(S.mwk!=null?" · "+wkFull(D.season,S.mwk):"")+'</h2><div class="filters">'+
+    (wl.length?wkNav("mw",wl,S.mwk,'<select id="selMw" aria-label="Week">'+wl.map(function(w){return '<option value="'+w+'"'+(w===S.mwk?" selected":"")+">"+wkFull(D.season,w)+"</option>"}).join("")+"</select>"):"")+"</div></div>";
+  h+='<div class="filters" style="margin-bottom:12px"><label class="f">Rows '+seg("seg-mvr",[["one","One a player"],["every","Every change"]],every?"every":"one")+'</label><label class="f">Show '+seg("seg-mvs",[["all","All"],["flip","Status changed"],["pick","Picks now"]],f)+'</label><span class="tag">'+(every?list.length+" changes":mvNet(list).length+" players")+'</span><span class="tag w">'+up+' up</span><span class="tag l">'+dn+' down</span><span class="tag'+(flips?" pk":"")+'">'+flips+" status change"+(flips===1?"":"s")+"</span></div>";
+  h+='<p class="note">Every refresh (hourly, every 15 minutes on game days) compares each player in games still to start with the refresh before and records what moved: his chance to score, the best and FanDuel prices, his own injury tag, teammates ruled out or back, and his team\'s betting line. <b>Status</b> is whether he passes the Ledger pick rule before and after: a chance that rises at an unchanged price can push the edge past +25% and turn a Pick into Too good?. Edges are at '+(S.book==="FanDuel"?"FanDuel":"the best price")+' (choose FanDuel in the Book menu to see its numbers; other books use the best price here). <b>One a player</b> nets the week into one row, from his first logged change to now; <b>Every change</b> lists each refresh on its own row. Nothing is recorded once a game has started.</p>';
+  if(!rows.length)return h+'<p class="empty">'+(L.length?"Nothing in this view.":"No changes logged yet. The log starts with the first refresh after this update, so the first movers show up an hour or so later.")+"</p></section>";
+  var pc=function(s){return s&&s[0]!=null?pct(s[0],1):"–"};
+  h+='<div class="tw"><table class="mov"><thead><tr><th>'+(every?"Time":"Last change")+'</th><th>Team</th><th>Player</th><th>Opponent</th><th class="n">Price now</th><th class="n">Chance</th><th class="n">Moved</th><th class="n">Edge</th><th>Status</th>'+"<th>What changed</th></tr></thead><tbody>";
+  rows.forEach(function(x){var r=x.r,id=r[1]+"|"+r[2],row=rowOf(id),g=gm(r[1]),pr=mvPr(x.b),flip=x.sa!==x.sb;
+    h+="<tr"+(flip?' class="flip"':"")+"><td>"+esc(mvTime(x.at))+(every||x.n<2?"":'<span class="o sm">'+x.n+" changes</span>")+"</td><td>"+tmL(r[4])+'</td><td><span class="tag pos">'+r[6]+"</span> "+(row?'<button class="lnk" type="button" data-open="'+esc(id)+'">'+esc(r[3])+"</button>"+(row._top?' <span class="tag t8">Top 8</span>':""):'<span class="pn">'+esc(r[3])+"</span>")+'</td><td><span class="o">'+(g&&g.h===r[4]?"vs ":"@ ")+esc(r[5])+"</span></td>"+
+      '<td class="n">'+(pr?fmtA(pr.a)+" "+bkAb(pr.bk):"–")+'</td><td class="n"><span class="o">'+pc(x.a)+' →</span> <b>'+pc(x.b)+'</b></td><td class="n">'+(x.mv==null||Math.abs(x.mv)<0.0005?'<span class="o">–</span>':'<b class="'+(x.mv>0?"pos":"neg")+'">'+(x.mv>0?"▲ +":"▼ −")+(Math.abs(x.mv)*100).toFixed(1)+"</b>")+'</td><td class="n"><span class="o">'+evTxt(x.ea)+' →</span> <span class="ev '+evCls(x.eb)+'">'+evTxt(x.eb)+"</span></td><td>"+(flip?MVST[x.sa]+' <span class="o">→</span> '+MVST[x.sb]:MVST[x.sb])+"</td>"+
+      '<td class="why">'+x.c.map(function(c){return"<div>"+mvCause(c)+"</div>"}).join("")+"</td></tr>"});
+  return h+"</tbody></table></div></section>"}
+
 /* ---------- Players ---------- */
 var PC=[["Team",1],["Player",0],["Pos",2],["G",3,"Games"],["Snaps",4,"Average snap share"],["Car",5],["Tgt",6],["In 5",7,"Carries inside the 5-yard line"],["EZ tgt",8,"Targets thrown into the end zone"],["RZ",9,"Red-zone carries plus targets"],["xTD",10,"Expected touchdowns from where his carries and targets happened"],["TD",11],["TD − xTD",-1,"Positive: scoring more than his chances suggest, likely to cool. Negative: due."],["Scored in",12,"Games with a touchdown"],["Rush share",13,"Share of team rushing TD chances"],["Tgt share",14,"Share of team receiving TD chances"]];
 function vPlayers(){
@@ -726,7 +776,7 @@ function modalHtml(r){var id=r.g+"|"+r.id,g=gm(r.g),L=liveRes(r);
   return h+detail(r)+"</div>"}
 function renderModal(){var m=$("modal"),r=S.open?rowOf(S.open):null;if(!r){if(!m.hidden){m.hidden=true;$("mbox").innerHTML="";document.body.style.overflow=""}return}
   calc(r);var sc=m.scrollTop,was=m.dataset.id===S.open;$("mbox").innerHTML=modalHtml(r);m.hidden=false;m.dataset.id=S.open;document.body.style.overflow="hidden";m.scrollTop=was?sc:0}
-var V={picks:vPicks,games:vGames,feed:vFeed,players:vPlayers,teams:vTeams,tracker:vTracker,bets:vBets,model:vModel};
+var V={picks:vPicks,games:vGames,feed:vFeed,movers:vMovers,players:vPlayers,teams:vTeams,tracker:vTracker,bets:vBets,model:vModel};
 function render(keep){
   var y=window.scrollY,ae=document.activeElement&&document.activeElement.id,pos=ae==="pq"?$("pq").selectionStart:null;
   Array.prototype.forEach.call($("tabs").children,function(b){b.setAttribute("aria-selected",b.dataset.tab===S.tab)});
@@ -751,8 +801,8 @@ document.addEventListener("click",function(e){
   var t=e.target,b;
   if((b=t.closest("#tabs button"))){S.tab=b.dataset.tab;S.open=null;try{history.replaceState(null,"","#"+S.tab)}catch(x){}render();return}
   if((b=t.closest(".seg button"))){var id=b.parentNode.id,v=b.dataset.v;
-    ({"seg-wk":function(){S.wk=+v;S.game="all";S.open=null},"seg-minp":function(){S.minp=+v},"seg-sort":function(){S.sort=v;S.bsort=null},"seg-pos":function(){S.pos=v},"seg-priced":function(){S.priced=+v},"seg-ps":function(){S.pseason=v},"seg-pp":function(){S.ppos=v},"seg-tv":function(){S.tview=v},"seg-tss":function(){S.tseason=+v;S.twk=0},"seg-fss":function(){S.fss=+v;S.fwk=null},"seg-hs":function(){S.hs=+v;S.hw=null;S.open=null},"seg-bf":function(){S.bf=v},"seg-ms":function(){S.msea=v}}[id]||function(){})();render(true);return}
-  if((b=t.closest("[data-nav]"))){if(b.dataset.to==="")return;var to=+b.dataset.to;if(b.dataset.nav==="hw"){S.hw=to;S.game="all";S.open=null}else if(b.dataset.nav==="fw")S.fwk=to;else S.twk=to;render(true);return}
+    ({"seg-wk":function(){S.wk=+v;S.game="all";S.open=null},"seg-minp":function(){S.minp=+v},"seg-sort":function(){S.sort=v;S.bsort=null},"seg-pos":function(){S.pos=v},"seg-priced":function(){S.priced=+v},"seg-ps":function(){S.pseason=v},"seg-pp":function(){S.ppos=v},"seg-tv":function(){S.tview=v},"seg-tss":function(){S.tseason=+v;S.twk=0},"seg-fss":function(){S.fss=+v;S.fwk=null},"seg-hs":function(){S.hs=+v;S.hw=null;S.open=null},"seg-bf":function(){S.bf=v},"seg-ms":function(){S.msea=v},"seg-mvr":function(){S.mvr=v},"seg-mvs":function(){S.mvs=v}}[id]||function(){})();render(true);return}
+  if((b=t.closest("[data-nav]"))){if(b.dataset.to==="")return;var to=+b.dataset.to;if(b.dataset.nav==="hw"){S.hw=to;S.game="all";S.open=null}else if(b.dataset.nav==="fw")S.fwk=to;else if(b.dataset.nav==="mw")S.mwk=to;else S.twk=to;render(true);return}
   if((b=t.closest("[data-jump]"))){e.preventDefault();var el=$(b.dataset.jump);if(el)el.scrollIntoView({behavior:"smooth",block:"start"});return}
   if(t.closest("[data-clear]")){var f=t.closest("form");delete MAN[f.dataset.price];ls("atd-manual",MAN);render(true);return}
   if(t.closest("#pasteBtn")){paste();return}
@@ -787,7 +837,7 @@ document.addEventListener("change",function(e){var t=e.target;
   if(t.id==="parBook"){PAR.book=t.value;savePar();renderSlip();return}
   if(t.id==="unitIn"){var uu=parseFloat(t.value);if(!isNaN(uu)&&uu>0){UNIT=uu;ls("atd-unit",UNIT)}render(true);return}
   if(t.id==="betFile"){var fl=t.files&&t.files[0];if(!fl)return;var rd=new FileReader();rd.onload=function(){try{var d=JSON.parse(rd.result),inb=Array.isArray(d)?d:d.bets||[],have={};BETS.forEach(function(x){have[x.id]=1});var n=0;inb.forEach(function(x){if(x&&x.id&&x.gid&&x.n&&!have[x.id]){BETS.push(x);n++}});if(d.unit)UNIT=d.unit;saveBets();ls("atd-unit",UNIT);say2("Imported "+n+" bet"+(n===1?"":"s"));render(true)}catch(err){say2("That file could not be read.")}};rd.readAsText(fl);return}
-  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.classList.contains("selBook")){S.book=t.value;render(true)}else if(t.id==="selTw"){S.twk=+t.value;render(true)}else if(t.id==="selFw"){S.fwk=+t.value;render(true)}else if(t.id==="selHw"){S.hw=+t.value;S.game="all";S.open=null;render(true)}});
+  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.classList.contains("selBook")){S.book=t.value;render(true)}else if(t.id==="selTw"){S.twk=+t.value;render(true)}else if(t.id==="selFw"){S.fwk=+t.value;render(true)}else if(t.id==="selMw"){S.mwk=+t.value;render(true)}else if(t.id==="selHw"){S.hw=+t.value;S.game="all";S.open=null;render(true)}});
 document.addEventListener("input",function(e){if(e.target.id==="pq"){S.pq=e.target.value;render(true)}
   if(e.target.id==="parBoost"||e.target.id==="parUnits"){var v=parseFloat(e.target.value);if(e.target.id==="parBoost")PAR.boost=isNaN(v)||v<0?0:Math.min(v,500);else PAR.units=isNaN(v)||v<=0?1:Math.round(v*100)/100;savePar();var L=parLegs(),o=$("slipOut");if(o)o.innerHTML=slipOut(L,L.length?parCalc(L):{})}});
 document.addEventListener("toggle",function(e){if(e.target.id==="how")S.howOpen=e.target.open},true);

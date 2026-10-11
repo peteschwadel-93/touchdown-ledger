@@ -570,7 +570,102 @@ def make(season=None, old=None):
             out["odds"][k]["bestt"] = list(bt_.values())
     if note:
         out["odds"]["_meta"]["err"] = note[:200]
+    try:
+        out["movers"] = movers(out)
+    except Exception as e:                # the change log is a nicety: never let it stop a build
+        print(f"movers skipped: {e}", file=sys.stderr)
+        out["movers"] = []
     return out
+
+
+# ---------- movers: what changed for each player from one build to the next ----------
+MOVERS = "movers.json"
+
+
+def movers(out, path=MOVERS, keep_days=8):
+    """Compares every player in games still to start with the previous build and logs what moved: his chance, the best and FanDuel
+    prices, his own injury status, teammates ruled out or back, and the team's betting line (implied points and team touchdowns).
+    The last build's numbers live in movers.json (committed with odds.json); the log keeps eight days. Returns the log for the page:
+    rows of [time, game, player id, name, team, opponent, pos, before, after, causes] with before/after = [chance, team TDs, best price,
+    best book, FanDuel price, status] (None when he was not on the board)."""
+    now = datetime.now(timezone.utc)
+    try:
+        with open(path, encoding="utf-8") as f:
+            prev = json.load(f)
+    except Exception:
+        prev = {}
+    psnap, pgame = prev.get("snap") or {}, prev.get("games") or {}
+    cut = (now - timedelta(days=keep_days)).strftime("%Y-%m-%dT%H:%MZ")
+    log = [r for r in (prev.get("log") or []) if r[0] >= cut]
+    games, snap, add = {}, {}, []
+    for g in out["sched"]:
+        try:
+            if datetime.fromisoformat(g["ts"]) <= now:
+                continue
+        except Exception:
+            continue
+        outs = g.get("out") or {}
+        games[g["gid"]] = {"a": g["a"], "h": g["h"], "imp": {g["a"]: g.get("ia"), g["h"]: g.get("ih")},
+                           "out": {t: sorted(x[0] for x in (outs.get(t) or [])) for t in (g["a"], g["h"])}}
+    px = {}
+    for gid in games:
+        best, fd = {}, {}
+        for bk, rows_ in (((out.get("odds") or {}).get(gid) or {}).get("b") or {}).items():
+            for who, price in rows_:
+                k = norm_name(who)
+                if k not in best or american(price) > american(best[k][0]):
+                    best[k] = [price, bk]
+                if bk == "FanDuel":
+                    fd[k] = price
+        px[gid] = (best, fd)
+    for r in out["picks"]:
+        gid = r["g"]
+        if gid not in games:
+            continue
+        k = norm_name(r["n"])
+        b = px[gid][0].get(k)
+        snap[gid + "|" + r["id"]] = [r3(r["p"], 4), r3(r.get("T"), 2), b[0] if b else None, b[1] if b else None, px[gid][1].get(k),
+                                     (r.get("inj") or [""])[0] or "", r["n"], r["t"], r["o"], r["pos"]]
+
+    def causes(gid, a, b):
+        if not b:
+            return [["gone"]]
+        c = [] if a else [["new"]]
+        t, gp, gn = (b or a)[7], pgame[gid], games[gid]
+        oi, ni = (gp.get("imp") or {}).get(t), gn["imp"].get(t)
+        if a and b and (oi != ni or (a[1] is not None and b[1] is not None and abs(a[1] - b[1]) >= 0.01)):
+            c.append(["line", [oi, ni], [a[1], b[1]]])
+        me = (b or a)[6]
+        om, nm = set((gp.get("out") or {}).get(t) or []) - {me}, set(gn["out"].get(t) or []) - {me}
+        if om != nm:
+            c.append(["mates", sorted(nm - om), sorted(om - nm)])
+        if a and b and a[5] != b[5]:
+            c.append(["inj", a[5], b[5]])
+        if (a and a[2]) != (b and b[2]):
+            c.append(["price", a and a[2], b and b[2], a and a[3], b and b[3]])
+        if (a and a[4]) != (b and b[4]):
+            c.append(["fd", a and a[4], b and b[4]])
+        if a and b and not c and abs((a[0] or 0) - (b[0] or 0)) >= 0.002:
+            c.append(["model"])
+        return c
+
+    for key in sorted(set(snap) | set(psnap)):
+        gid = key.rsplit("|", 1)[0]
+        if gid not in games or gid not in pgame:      # only games both builds saw, and only before kickoff
+            continue
+        a, b = psnap.get(key), snap.get(key)
+        if a == b:
+            continue
+        c = causes(gid, a, b)
+        if not c:
+            continue
+        z = b or a
+        add.append([out["built"], gid, key.rsplit("|", 1)[1], z[6], z[7], z[8], z[9], a[:6] if a else None, b[:6] if b else None, c])
+    log += add
+    if add or snap != psnap or games != pgame:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"at": out["built"], "snap": snap, "games": games, "log": log}, f, separators=(",", ":"), ensure_ascii=False)
+    return log
 
 
 # ---------- kickoff locks ----------
