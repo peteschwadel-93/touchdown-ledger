@@ -533,6 +533,9 @@ def make(season=None, old=None):
     out = {"season": int(season), "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "through": str(d.gameday.max()),
            "lastwk": int(dcur.week.max()) if len(dcur) else 0, "sched": sched, "picks": picks, "players": players, "teams": tms,
            "model": model, "trk": trk, "feed": td_feed(pbp, d, pl, [season - 1, season])}
+    tg_ = {r[2] for r in trk}           # kickoff day and time of every graded game, for slot lines on the Tracker (e.g. the 4:25 TE)
+    kk = games[games.game_id.isin(tg_)]
+    out["kick"] = {gid: f"{str(wd)[:3]} {gt}" for gid, wd, gt in zip(kk.game_id, kk.weekday, kk.gametime)}
     note = None
     bf = os.environ.get("ODDS_BACKFILL", "").strip().lower()
     if bf in ("1", "2", "3", "4", "5", "true"):
