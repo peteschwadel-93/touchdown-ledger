@@ -40,7 +40,8 @@ POS = ["QB", "RB", "WR", "TE", "FB"]
 ET = ZoneInfo("America/New_York")
 UA = {"User-Agent": "Mozilla/5.0", "Accept": "*/*"}
 # model settings, chosen on a 2025 holdout (see the Model tab)
-HL, HLT, SM = 6, 6, 0.6          # half-life in games for players and teams; extra fade across an off-season
+HL, HLT, SM = 5, 6, 0.6          # half-life in games for players and teams; extra fade across an off-season
+FIT_HL = 1.0                     # when fitting the chance curve, a player-game a season older counts half as much (TE scoring has been rising)
 K, KT, KD = 1.5, 6.0, 30.0       # shrinkage, in games, for player shares, team run/pass mix and the defence nudge
 PBP_COLS = ["game_id", "season", "week", "posteam", "defteam", "play_type", "yardline_100", "air_yards", "two_point_attempt",
             "sack", "touchdown", "td_player_id", "rusher_player_id", "receiver_player_id", "passer_player_id", "pass_touchdown",
@@ -301,14 +302,21 @@ def design(s):
     return np.c_[ll, q, (s.pos == "RB").astype(int), (s.pos == "TE").astype(int), s.snw.to_numpy() * (1 - q), q * ll, q * cpg]
 
 
-def fit_logit(X, y, iters=60, l2=1e-3):
-    """Plain logistic regression by Newton's method (no scikit-learn needed)."""
+def recency(s, season):
+    """Fitting weights: halve for each season back from the one being predicted (FIT_HL), counting weeks within a season."""
+    age = (season - s.season.to_numpy()) + (18 - np.clip(s.week.to_numpy(), None, 18)) / 18
+    return 0.5 ** (np.clip(age, 0, None) / FIT_HL)
+
+
+def fit_logit(X, y, iters=60, l2=1e-3, wt=None):
+    """Plain logistic regression by Newton's method (no scikit-learn needed); wt = optional weight per row."""
     X1 = np.c_[np.ones(len(X)), X]
     w = np.zeros(X1.shape[1])
+    wt = np.ones(len(X1)) if wt is None else np.asarray(wt, float)
     for _ in range(iters):
         p = 1 / (1 + np.exp(-X1 @ w))
-        H = (X1 * (p * (1 - p))[:, None]).T @ X1 + l2 * np.eye(len(w))
-        step = np.linalg.solve(H, X1.T @ (y - p) - l2 * w)
+        H = (X1 * (wt * p * (1 - p))[:, None]).T @ X1 + l2 * np.eye(len(w))
+        step = np.linalg.solve(H, X1.T @ (wt * (y - p)) - l2 * w)
         w += step
         if np.abs(step).max() < 1e-8:
             break
@@ -375,7 +383,7 @@ def make(season=None, old=None):
         rate = -np.log(1 - z.p)
         return z.assign(pf=rate / rate.groupby(z.game_id).transform("sum") * fc)
     if len(tr) > 2000 and len(te) > 1000:
-        w0 = fit_logit(design(tr), tr.y.to_numpy(float))
+        w0 = fit_logit(design(tr), tr.y.to_numpy(float), wt=recency(tr, prev))
         te = with_first(te.assign(p=predict(w0, design(te))))
         trk += [row(r) for r in te[te.p >= 0.08].itertuples()]
         bt = {"season": int(prev), "model": scores(te.y, te.p), "base": scores(te.y, np.full(len(te), tr.y.mean())),
@@ -397,11 +405,11 @@ def make(season=None, old=None):
     pre = s[s.season < season]
     cur = s[s.season == season]
     if len(pre) > 2000 and len(cur):
-        w1 = fit_logit(design(pre), pre.y.to_numpy(float))
+        w1 = fit_logit(design(pre), pre.y.to_numpy(float), wt=recency(pre, season))
         cur = with_first(cur.assign(p=predict(w1, design(cur))))
         model["trk"] = scores(cur.y, cur.p)
         trk += [row(r) for r in cur[cur.p >= 0.08].itertuples()]
-    w = fit_logit(design(s), s.y.to_numpy(float))
+    w = fit_logit(design(s), s.y.to_numpy(float), wt=recency(s, season))
     model["w"] = [r3(x, 4) for x in w]
     model["n"] = int(len(s))
     # first-TD share: a player's slice of everyone's scoring rate in the game, scaled to how often the first TD goes to a listed player
