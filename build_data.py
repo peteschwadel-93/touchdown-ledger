@@ -554,6 +554,21 @@ def make(season=None, old=None):
                 if who not in best or price > best[who][1]:
                     best[who] = [who, price, bk]
         out["odds"][k] = {"at": v.get("at"), "best": list(best.values())}
+        if v.get("b0"):                   # closing-line value: best and FanDuel at the first look, and FanDuel at the last
+            b0 = {}
+            for bk, rows_ in v["b0"].items():
+                for who, price in rows_:
+                    if who not in b0 or american(price) > american(b0[who][1]):
+                        b0[who] = [who, price, bk]
+            out["odds"][k]["best0"] = list(b0.values())
+            out["odds"][k]["at0"] = v.get("at0")
+            fo = dict((who, price) for who, price in v["b0"].get("FanDuel") or [])
+            out["odds"][k]["fd"] = [[who, price, fo.get(who)] for who, price in v["b"].get("FanDuel") or []]
+        try:                              # every book's closing price for the last ten days, so My bets can show closing-line value
+            if (datetime.now(ET) - datetime.fromisoformat(v.get("at") or "2000-01-01T00:00").replace(tzinfo=ET)).days <= 10:
+                out["odds"][k]["bc"] = v["b"]
+        except Exception:
+            pass
         bf_ = {}
         for bk, rows_ in (v.get("f") or {}).items():
             for who, price in rows_:
@@ -990,6 +1005,8 @@ def remember_odds(sched, old, force=False):
                     meta["left"] = int(float(left))
                 rec = store.get(u["gid"]) or {}
                 if books:
+                    if "b0" not in rec:             # the first look is kept for closing-line value: did the price shorten by kickoff?
+                        rec["b0"], rec["at0"] = (rec["b"], rec.get("at")) if rec.get("b") else (books, now.strftime("%Y-%m-%dT%H:%M"))
                     rec.update({"at": now.strftime("%Y-%m-%dT%H:%M"), "b": books, "n": max(due, rec.get("n", 0))})
                     if first:
                         rec["f"] = first
