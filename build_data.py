@@ -288,11 +288,17 @@ def structural(d, lg, pri, tfit):
     return d
 
 
-XC = ["ll", "isQB", "isRB", "isTE", "snw"]
+XC = ["ll", "isQB", "isRB", "isTE", "snw", "qb_ll", "qb_car"]
 
 
 def design(s):
-    return np.c_[np.log(s.lam.clip(1e-4)), (s.pos == "QB").astype(int), (s.pos == "RB").astype(int), (s.pos == "TE").astype(int), s.snw]
+    """Inputs to the chance curve. Quarterbacks get their own slope on expected TDs and a term for how often they carry the ball, and no
+    snap-share term (every starter plays every snap, so it only lifted pocket passers): without these the curve squeezed QBs toward the
+    middle, rating statues like Stafford near 16% and running QBs too low. Back-check 2025-26: QB log loss 0.367 -> 0.355."""
+    q = (s.pos == "QB").astype(int).to_numpy()
+    ll = np.log(s.lam.clip(1e-4)).to_numpy()
+    cpg = np.log(s.p_car.to_numpy() / np.clip(s.n.to_numpy(), 1, None) + 0.5)
+    return np.c_[ll, q, (s.pos == "RB").astype(int), (s.pos == "TE").astype(int), s.snw.to_numpy() * (1 - q), q * ll, q * cpg]
 
 
 def fit_logit(X, y, iters=60, l2=1e-3):
