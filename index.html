@@ -687,16 +687,49 @@ function rbAt(x,kind){var bk=rBk();if(!bk||!x)return undefined;var s=typeof kind
   if(!s){if("act" in x)return undefined;var by=typeof kind==="number"?(oddsFor(x.g).byr[norm(x.n)]||{})[kind]:null;return by&&by[bk]!=null?{a:by[bk],bk:bk}:null}
   if(!s.by)return undefined;return s.by[bk]!=null?{a:s.by[bk],bk:bk}:null}
 function bkShort(b){return b==="DraftKings"?"DK":b==="FanDuel"?"FD":b==="BetMGM"?"MGM":b==="BetRivers"?"BR":b==="Caesars"?"CZR":b}
+/* the board at one book: picks, ladders and parlays re-chosen with the same rules (build_data.py rec_board) using only that book's prices.
+   Games already started keep the picks that locked at kickoff. The Tracker and net units always count the best-price board. */
+function bookBoard(wk,mode){var bk=rBk(),B=D.recb||{},R=B.rule||{};if(!bk||mode!=="live")return null;
+  var gw=D.sched.filter(function(g){return g.wk===wk}),now=Date.now(),st={};gw.forEach(function(g){st[g.gid]=Date.parse(g.ts)<=now});
+  var rows=(B.rows||[]).filter(function(x){return st[x.g]===false}),pos=R.pos||["TE","RB"],nP=Math.min(5,Math.max(1,Math.ceil(gw.length/3)));
+  var keep=function(list){return (list||[]).filter(function(x){return x.wk===wk&&st[x.g]})};
+  // picks
+  var fp=keep(B.picks),cands=[];
+  rows.forEach(function(x){if(x.line==null||x.check||(x.books||0)<(R.books||3)||pos.indexOf(x.pos)<0)return;
+    ["ov","un"].forEach(function(sd){var s=x[sd];if(!s||!s.by||s.by[bk]==null)return;var a=s.by[bk],d=dec(a),m=s.p-1/d;if(m<(R.m||0.01)||m>(R.mx||0.04)||d<(R.pmin||1.667))return;
+      var e=s.p*d-1,kel=Math.max(e,0)/(d-1);cands.push({g:x.g,id:x.id,n:x.n,t:x.t,o:x.o,pos:x.pos,side:sd.charAt(0),line:x.line,a:a,bk:bk,p:s.p,e:e,m:m,pm:x.pm,mk:x.mk,mu:x.mu,u:Math.min(1.5,Math.max(0.25,Math.round(kel*25*4)/4)),wk:wk})})});
+  cands.sort(function(a,b){return b.p-a.p});var teams={},picks=fp.slice();fp.forEach(function(p_){teams[p_.t]=1});
+  cands.forEach(function(c){if(picks.length>=nP||teams[c.t]||picks.some(function(o){return o.id===c.id}))return;teams[c.t]=1;picks.push(c)});
+  // ladder watch
+  var fl=keep(B.lad),lc=[];
+  rows.forEach(function(x){if(x.check)return;var kk=x.kk,good=[];Object.keys(x.lad||{}).forEach(function(k_){var k=+k_,v=x.lad[k_];if(k<Math.max(2,kk)||k>kk+2||!v.by||v.by[bk]==null)return;var a=v.by[bk],e=v.p*dec(a)-1;
+      if(v.p>=(R.lp||0.2)&&e>=(R.llo||0.1)&&e<=(R.lhi||0.4)&&dec(a)<=(R.lmax||15))good.push([k,a,bk,v.p,e])});
+    if(good.length<2||Math.max.apply(null,good.map(function(g_){return g_[0]}))<kk)return;good.sort(function(a,b){return a[0]-b[0]});
+    var w=good.map(function(g_){return g_[3]*g_[4]}),tot=w.reduce(function(a,b){return a+b},0),te=0;good.forEach(function(g_,i){g_.push(tot>0?Math.round(w[i]/tot*100)/100:Math.round(100/good.length)/100);te+=g_[4]});
+    lc.push({g:x.g,id:x.id,n:x.n,t:x.t,o:x.o,pos:x.pos,line:x.line,mu:x.mu,mub:x.mub,te:te,rungs:good,wk:wk})});
+  lc.sort(function(a,b){return b.te-a.te});var lad=fl.concat(lc.filter(function(c){return !fl.some(function(f){return f.id===c.id})}).slice(0,Math.max(0,nP-fl.length)));
+  // parlay ideas: legs that beat this book's price, one a player, different games; the best 2- and 3-leg idea
+  var kp=(B.parl||[]).filter(function(i){return i.wk===wk&&i.legs.some(function(l){return st[l.g]})}),pool=[];
+  rows.forEach(function(x){if(x.check||x.line==null)return;
+    ["ov","un"].forEach(function(sd){var s=x[sd];if(!s||!s.by||s.by[bk]==null||s.p<(R.pm||0.45))return;var a=s.by[bk],m=s.p-1/dec(a);if(m>=(R.m||0.01)&&m<=(R.mx||0.04))pool.push({g:x.g,id:x.id,n:x.n,t:x.t,lab:(sd==="ov"?"Over ":"Under ")+x.line,bk:bk,a:a,p:s.p,e:s.p*dec(a)-1})});
+    Object.keys(x.lad||{}).forEach(function(k_){var k=+k_,v=x.lad[k_];if(k<x.kk+1||k>x.kk+2||v.p<(R.pr||0.3)||!v.by||v.by[bk]==null)return;var a=v.by[bk],e=v.p*dec(a)-1;if(e>=(R.plo||0.1)&&e<=(R.phi_||0.4))pool.push({g:x.g,id:x.id,n:x.n,t:x.t,lab:k+"+ catches",bk:bk,a:a,p:v.p,e:e})})});
+  pool.sort(function(a,b){return b.e-a.e});pool=pool.slice(0,12);var parl=[];
+  [2,3].forEach(function(size){if(kp.some(function(i){return i.legs.length===size}))return;var best=null,idx=[],go=function(st0,acc){if(acc.length===size){var gs={},ids={};if(acc.some(function(l){if(gs[l.g]||ids[l.id])return true;gs[l.g]=ids[l.id]=1}))return;
+      var q=1,d_=1;acc.forEach(function(l){q*=l.p;d_*=dec(l.a)});var ev=q*d_-1;if(!best||ev>best.ev)best={bk:bk,legs:acc.slice(),q:q,d:d_,ev:ev};return}
+      for(var i=st0;i<pool.length;i++){acc.push(pool[i]);go(i+1,acc);acc.pop()}};go(0,[]);
+    if(best){var kel=Math.max(best.ev,0)/(best.d-1);best.u=Math.round(Math.min(0.5,Math.max(0.1,kel*100/8))*20)/20;best.wk=wk;best.lk=0;parl.push(best)}});
+  return{picks:picks,lad:lad,parl:kp.concat(parl)}}
 function vRec(){
   var B=D.recb||{},rule=B.rule||{},WM=B.weeks||{},ws=Object.keys(WM).map(Number).sort(function(a,b){return a-b});
   if(ws.indexOf(S.rwk)<0)S.rwk=ws.indexOf(S.wk)>=0?S.wk:ws.length?ws[ws.length-1]:S.wk;var wk=S.rwk,mode=WM[String(wk)]||"live";
   var picks=(B.picks||[]).filter(function(p_){return p_.wk===wk}),lads=(B.lad||[]).filter(function(l){return l.wk===wk}),parl=(B.parl||[]).filter(function(i){return i.wk===wk});
+  var BB=bookBoard(wk,mode);if(BB){picks=BB.picks;lads=BB.lad;parl=BB.parl}
   var tp=recTally(picks,rpRes),tl=recTally(lads,rlRes),tz=recTally(parl,rzRes),U=function(z){return z.n?z.w+" of "+z.n+" · "+uTxt(z.u)+" · "+(z.u>=0?"+":"−")+"$"+Math.abs(z.u*UNIT).toFixed(0):"no results yet"},
     PL=function(z,txt){return '<span class="upill '+(!z.n?"neu":z.u>0.004?"pos":z.u<-0.004?"neg":"neu")+'">'+txt+"</span>"};
   var lrung=0,lhit=0,llive=0;lads.forEach(function(l){var r=rlRes(l);if(!r)return;lrung+=l.rungs.length;lhit+=r.hit;if(r.open)llive++});
   var wsel=ws.length?wkNav("rw",ws,wk,'<select id="selRw" aria-label="Week">'+ws.map(function(w){return '<option value="'+w+'"'+(w===wk?" selected":"")+">Week "+w+(WM[w]==="retro"?" · back-check":WM[w]==="live"?" · this week":"")+"</option>"}).join("")+"</select>"):"";
   var h='<section class="panel"><div class="phead"><h2>Receptions picks · Week '+wk+'</h2><div class="filters">'+PL(tp,U(tp))+rbkSel()+wsel+"</div></div>";
-  if(rBk())h+='<p class="note warnline">Showing <b>'+esc(rBk())+'</b> prices and the edge there. Picks, ladders and parlays are still chosen and tracked at the best price across books'+(mode==="live"?"":"; back-check weeks kept only the best prices, so they show those")+".</p>";
+  if(rBk())h+='<p class="note warnline">'+(BB?'The board at <b>'+esc(rBk())+'</b>: picks, ladders and parlays chosen by the same rules using only '+esc(rBk())+'\'s prices, so some differ from the best-price board. Games already started keep the picks that locked at kickoff. The Tracker and net units always count the best-price board.':'Back-check weeks kept only the best prices, so this week shows the best-price board with '+esc(rBk())+' prices beside it where kept.')+"</p>";
   if(mode==="retro")h+='<p class="note warnline"><b>Back-check week.</b> No picks were recorded live this week, so this is what the board would have shown, rebuilt from the prices stored an hour before each kickoff and the catches a model that never saw 2026 expected. Results are final.</p>';
   h+='<p class="note">Each player\'s chance is the model\'s averaged half and half with the market\'s own (each book\'s over and under on the main line, margin removed). Picks are tight ends and running backs only, priced −150 or longer: on the first six weeks of 2026, receiver picks lost in five weeks of six (the most-bet, sharpest lines) and heavy favourites gave back most of the edge; tight ends and backs that pass the rule went 61 of 97, about +30% a bet at the best price. A pick needs that chance '+Math.round((rule.m||.01)*100)+' to '+Math.round((rule.mx||.04)*100)+' points above the break-even of the best price on the commonest line (on the first six weeks of 2026, bigger margins were mostly model error and lost), '+(rule.books||3)+' or more books on that line, and the model within '+Math.round((rule.gap||.12)*100)+' points of the market (a bigger gap is marked CHECK in the table, which more often means news the model has not seen). The likeliest go first, one per team, one pick for every three games and five at most. Overs and unders both qualify. Each pick locks when its game starts. These thresholds are starting guesses: the record builds on the Tracker.</p>';
   if(!picks.length)h+='<p class="empty">No picks this week yet. They need main-line receptions prices from three or more books.</p>';
@@ -705,7 +738,7 @@ function vRec(){
     return '<article class="pcard rp '+st+'"><div class="pc-top">'+lg(p_.t)+'<b class="rp-g">'+p_.t+" "+vsGid(p_.g,p_.t,p_.o)+'</b><span class="tag rp-side '+(p_.side==="o"?"ov":"un")+'">'+(p_.side==="o"?"Over ":"Under ")+p_.line+"</span></div>"+
       '<div class="pc-game"><span class="tag pos">'+p_.pos+"</span>"+(g?esc(g.t):(D.kick||{})[p_.g]?esc(D.kick[p_.g]):"")+(p_.lk?' <span class="tag">Locked</span>':"")+'</div><div class="pc-name">'+(row?'<button class="lnk big" type="button" data-open="'+esc(p_.g+"|"+p_.id)+'">'+esc(p_.n)+"</button>":'<span class="pn">'+esc(p_.n)+"</span>")+"</div>"+
       (r?'<div><span class="tag '+(r.open?"lv":r.w?"rw":"rl")+'">'+r.n+" rec · "+(r.open?"live":r.w?"won "+uTxt(r.pl):"lost "+uTxt(r.pl))+"</span></div>":"")+
-      '<div class="rp-ls">'+L("Best price",'<span class="px big2" data-px="'+esc(p_.g+"|"+p_.id)+"|"+(p_.side==="o"?"O":"U")+p_.line+'">'+fmtA(p_.a)+'</span> <span class="o">'+esc(p_.bk)+"</span>")+L("Edge",'<span class="ev '+evCls(p_.e)+'">'+evTxt(p_.e)+"</span>")+(function(){var q=x&&x.line===p_.line?rbAt(x,p_.side==="o"?"ov":"un"):undefined;if(q===undefined)return"";if(!q)return L("At "+esc(rBk()),'<span class="o">not posted</span>');var dq=dec(q.a),eq=p_.p*dq-1;
+      '<div class="rp-ls">'+L(rBk()&&p_.bk===rBk()?esc(rBk())+" price":"Best price",'<span class="px big2" data-px="'+esc(p_.g+"|"+p_.id)+"|"+(p_.side==="o"?"O":"U")+p_.line+'">'+fmtA(p_.a)+'</span> <span class="o">'+esc(p_.bk)+"</span>")+L("Edge",'<span class="ev '+evCls(p_.e)+'">'+evTxt(p_.e)+"</span>")+(function(){var q=x&&x.line===p_.line&&p_.bk!==rBk()?rbAt(x,p_.side==="o"?"ov":"un"):undefined;if(q===undefined)return"";if(!q)return L("At "+esc(rBk()),'<span class="o">not posted</span>');var dq=dec(q.a),eq=p_.p*dq-1;
       return L("At "+esc(rBk()),'<b class="big2">'+fmtA(q.a)+'</b> <span class="ev '+evCls(eq)+'">'+evTxt(eq)+'</span> <span class="o">'+((p_.p-1/dq)>=0?"+":"−")+Math.abs((p_.p-1/dq)*100).toFixed(1)+" pts</span>")})()+
       L('<span title="Above break-even">Above B/E</span>',"+"+(p_.m*100).toFixed(1)+' pts <span class="o">needs '+pct(1/d_,1)+"</span>")+L("Suggested stake",'<span class="acc">'+f2(p_.u)+"u</span>")+L("Pick chance · fair",pct(p_.p,1)+" · "+amer(p_.p))+
       L("Model says",pct(p_.side==="o"?p_.pm:1-p_.pm,1))+L("Market says",p_.mk!=null?pct(p_.side==="o"?p_.mk:1-p_.mk,1):"–")+'<hr>'+L("Expected catches",f2(p_.mu,2))+
