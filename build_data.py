@@ -779,7 +779,9 @@ def movers(out, path=MOVERS, keep_days=8):
 # (each book's over and under on the main line with the margin removed); ladder rungs use the expected catches averaged the same way.
 # Retuned on the first six weeks of 2026 prices (80 games): the biggest pick margins and the smallest ladder edges both lost, so picks now
 # need a margin of 1 to 4 points and go to the likeliest, and ladder rungs need an edge of 10% to 40% within two rungs of the over rung.
-RB = {"m": 0.01, "mx": 0.04, "books": 3, "gap": 0.12, "lp": 0.20, "llo": 0.10, "lhi": 0.40, "lmax": 15.0, "pm": 0.45, "pr": 0.30, "plo": 0.10, "phi_": 0.40}
+# Picks are tight ends and backs only, at -150 or longer: on those six weeks WR picks lost in five of six weeks (the most-bet, sharpest
+# lines) and heavy favourites gave back most of the edge.
+RB = {"pos": ["TE", "RB"], "pmin": 1.667, "m": 0.01, "mx": 0.04, "books": 3, "gap": 0.12, "lp": 0.20, "llo": 0.10, "lhi": 0.40, "lmax": 15.0, "pm": 0.45, "pr": 0.30, "plo": 0.10, "phi_": 0.40}
 
 
 def nb_ge(mu, k, phi):
@@ -901,11 +903,11 @@ def rec_board(sched, picks, store, phi, season, rtrk=None):
             if started[g["gid"]]:
                 continue
             for x in byg.get(g["gid"], []):
-                if not x.get("line") or x.get("check") or x.get("books", 0) < RB["books"]:
+                if not x.get("line") or x.get("check") or x.get("books", 0) < RB["books"] or x["pos"] not in RB["pos"]:
                     continue
                 for side in ("ov", "un"):
                     s = x.get(side)
-                    if s and RB["m"] <= s["m"] <= RB["mx"]:
+                    if s and RB["m"] <= s["m"] <= RB["mx"] and american(s["a"]) >= RB["pmin"]:
                         dd = american(s["a"])
                         kel = max(s["e"], 0) / (dd - 1)
                         cands.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "o": x["o"], "pos": x["pos"], "side": side[0], "line": x["line"],
