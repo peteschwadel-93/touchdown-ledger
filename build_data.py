@@ -1399,7 +1399,7 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
     except Exception:
         store = {}
     if lad:        # alt-receptions ladders for games that do not have them yet
-        todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("r") and not (store.get(r.game_id) or {}).get("rtry")]
+        todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("ro") and not (store.get(r.game_id) or {}).get("rotry")]
     elif two:        # 2+ TD prices for games that do not have them yet
         todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("t") and not (store.get(r.game_id) or {}).get("ttry")]
     elif first:    # first-touchdown prices for games that do not have them yet (and anytime too where that is missing)
@@ -1412,7 +1412,7 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
     for r in todo:
         ko = datetime.strptime(f"{r.gameday} {r.gametime}", "%Y-%m-%d %H:%M").replace(tzinfo=ET)
         slots.setdefault(ko - timedelta(minutes=lead), []).append(r)
-    cost = (20 if lad else 10) * len(todo) + len(slots)
+    cost = sum(10 if lad and (store.get(r.game_id) or {}).get("r") else 20 if lad else 10 for r in todo) + len(slots)
     print(f"{len(g)} finished games ({season - back}-{season}), {len(g) - len(todo)} already have prices. To fetch: {len(todo)} games in {len(slots)} kickoff slots.")
     print(f"Estimated cost: about {cost} requests (10 per game + 1 per slot).")
     if not todo:
@@ -1443,8 +1443,8 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
                 mk = "player_anytime_td" if not first else "player_1st_td" if old_rec.get("b") else "player_anytime_td,player_1st_td"
                 if two:
                     mk = "player_tds_over" if old_rec.get("b") else "player_anytime_td,player_tds_over"
-                if lad:
-                    mk = "player_receptions,player_receptions_alternate"
+                if lad:      # games that already have ladders only need the main over/under lines
+                    mk = "player_receptions" if old_rec.get("r") else "player_receptions,player_receptions_alternate"
                 raw, hd = get(f"{ODDS_API.replace('/v4/', '/v4/historical/')}/events/{eid}/odds?apiKey={key}&regions=us&markets={mk}"
                               f"&oddsFormat=american&date={stamp}", 60, headers=True)
             except urllib.error.HTTPError as e:
@@ -1458,11 +1458,11 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
             if lad:
                 ladder, ou = parse_ladder(doc.get("data") or {}), parse_ou(doc.get("data") or {})
                 rec = dict(old_rec)
-                rec.update({"r": ladder, "rat": doc.get("timestamp") or stamp} if ladder else {"rtry": 1})
-                if ou:
-                    rec["ro"] = ou
+                if ladder:
+                    rec.update({"r": ladder, "rat": doc.get("timestamp") or stamp})
+                rec.update({"ro": ou} if ou else {"rotry": 1})
                 store[r.game_id] = rec
-                got += 1 if ladder else 0
+                got += 1 if (ladder or ou) else 0
                 with open(ODDS, "w", encoding="utf-8") as f:
                     json.dump(store, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
                 left = hd.get("x-requests-remaining")
