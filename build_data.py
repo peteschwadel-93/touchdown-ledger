@@ -639,9 +639,17 @@ def make(season=None, old=None):
             out["odds"][k]["at0"] = v.get("at0")
             fo = dict((who, price) for who, price in v["b0"].get("FanDuel") or [])
             out["odds"][k]["fd"] = [[who, price, fo.get(who)] for who, price in v["b"].get("FanDuel") or []]
-        try:                              # every book's closing price for the last ten days, so My bets can show closing-line value
-            if (datetime.now(ET) - datetime.fromisoformat(v.get("at") or "2000-01-01T00:00").replace(tzinfo=ET)).days <= 10:
+        elif v["b"].get("FanDuel"):       # FanDuel's last anytime price is kept all season, so My bets keeps closing-line value for older bets
+            out["odds"][k]["fd"] = [[who, price, None] for who, price in v["b"]["FanDuel"]]
+        try:                              # every book's closing prices for recent games, so My bets can show closing-line value
+            age = (datetime.now(ET) - datetime.fromisoformat(v.get("at") or "2000-01-01T00:00").replace(tzinfo=ET)).days
+            if age <= 14:                 # the page also saves each bet's close on the bet itself once its game starts
                 out["odds"][k]["bc"] = v["b"]
+                for src, dst in (("t", "bct"), ("f", "bcf"), ("ro", "bco")):
+                    if v.get(src):
+                        out["odds"][k][dst] = v[src]
+                if age <= 5 and v.get("r"):   # full alternate ladders are large: a few days is enough for the page to save them
+                    out["odds"][k]["bcr"] = v["r"]
         except Exception:
             pass
         bf_ = {}
