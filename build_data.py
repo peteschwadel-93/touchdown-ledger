@@ -713,14 +713,17 @@ def movers(out, path=MOVERS, keep_days=8):
                 if bk == "FanDuel":
                     fd[k] = price
         px[gid] = (best, fd)
+    rb = {(x["g"], x["id"]): x for x in ((out.get("recb") or {}).get("rows") or [])}
     for r in out["picks"]:
         gid = r["g"]
         if gid not in games:
             continue
         k = norm_name(r["n"])
         b = px[gid][0].get(k)
+        x = rb.get((gid, r["id"])) or {}
         snap[gid + "|" + r["id"]] = [r3(r["p"], 4), r3(r.get("T"), 2), b[0] if b else None, b[1] if b else None, px[gid][1].get(k),
-                                     (r.get("inj") or [""])[0] or "", r["n"], r["t"], r["o"], r["pos"]]
+                                     (r.get("inj") or [""])[0] or "", r["n"], r["t"], r["o"], r["pos"],
+                                     r.get("rm"), x.get("line"), (x.get("ov") or {}).get("a")]
 
     def causes(gid, a, b):
         if not b:
@@ -740,6 +743,13 @@ def movers(out, path=MOVERS, keep_days=8):
             c.append(["price", a and a[2], b and b[2], a and a[3], b and b[3]])
         if (a and a[4]) != (b and b[4]):
             c.append(["fd", a and a[4], b and b[4]])
+        ra, rb_ = (a[10:13] if a and len(a) > 12 else [None] * 3), (b[10:13] if b and len(b) > 12 else [None] * 3)
+        if a and b and ra[0] is not None and rb_[0] is not None and abs(ra[0] - rb_[0]) >= 0.1:
+            c.append(["rec", ra[0], rb_[0]])
+        if a and b and len(a) > 12 and ra[1] != rb_[1] and (ra[1] is not None or rb_[1] is not None):
+            c.append(["rline", ra[1], rb_[1]])
+        elif a and b and ra[2] != rb_[2] and rb_[1] is not None and len(a) > 12:
+            c.append(["rov", ra[2], rb_[2], rb_[1]])
         if a and b and not c and abs((a[0] or 0) - (b[0] or 0)) >= 0.002:
             c.append(["model"])
         return c
@@ -755,7 +765,8 @@ def movers(out, path=MOVERS, keep_days=8):
         if not c:
             continue
         z = b or a
-        add.append([out["built"], gid, key.rsplit("|", 1)[1], z[6], z[7], z[8], z[9], a[:6] if a else None, b[:6] if b else None, c])
+        cut_ = lambda s: s[:6] + list(s[10:13]) if len(s) > 12 else s[:6]
+        add.append([out["built"], gid, key.rsplit("|", 1)[1], z[6], z[7], z[8], z[9], cut_(a) if a else None, cut_(b) if b else None, c])
     log += add
     if add or snap != psnap or games != pgame:
         with open(path, "w", encoding="utf-8") as f:
@@ -766,7 +777,9 @@ def movers(out, path=MOVERS, keep_days=8):
 # ---------- the receptions board: picks, ladder watch and parlay ideas ----------
 # Starting guesses, like the other rules before a record exists. Chances are the model's averaged half and half with the market's own
 # (each book's over and under on the main line with the margin removed); ladder rungs use the expected catches averaged the same way.
-RB = {"m": 0.02, "books": 3, "gap": 0.12, "lp": 0.20, "llo": 0.02, "lhi": 0.20, "pm": 0.45, "pr": 0.30, "plo": 0.03, "phi_": 0.25}
+# Retuned on the first six weeks of 2026 prices (80 games): the biggest pick margins and the smallest ladder edges both lost, so picks now
+# need a margin of 1 to 4 points and go to the likeliest, and ladder rungs need an edge of 10% to 40% within two rungs of the over rung.
+RB = {"m": 0.01, "mx": 0.04, "books": 3, "gap": 0.12, "lp": 0.20, "llo": 0.10, "lhi": 0.40, "lmax": 15.0, "pm": 0.45, "pr": 0.30, "plo": 0.10, "phi_": 0.40}
 
 
 def nb_ge(mu, k, phi):
@@ -892,13 +905,13 @@ def rec_board(sched, picks, store, phi, season, rtrk=None):
                     continue
                 for side in ("ov", "un"):
                     s = x.get(side)
-                    if s and s["m"] >= RB["m"]:
+                    if s and RB["m"] <= s["m"] <= RB["mx"]:
                         dd = american(s["a"])
                         kel = max(s["e"], 0) / (dd - 1)
                         cands.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "o": x["o"], "pos": x["pos"], "side": side[0], "line": x["line"],
                                       "a": s["a"], "bk": s["bk"], "p": s["p"], "e": s["e"], "m": s["m"], "pm": x["pm"], "mk": x["mk"], "mu": x["mu"],
                                       "u": min(1.5, max(0.25, round(kel * 25 * 4) / 4))})
-        cands.sort(key=lambda c: -c["m"])
+        cands.sort(key=lambda c: -c["p"])          # likeliest first: the biggest margins were mostly model error
         teams = {p_["t"] for p_ in frozen}
         chosen = []
         for c in cands:
@@ -923,7 +936,8 @@ def rec_board(sched, picks, store, phi, season, rtrk=None):
                 if x.get("check"):
                     continue
                 kk = x["kk"]
-                good = [(int(k_), v) for k_, v in x["lad"].items() if max(2, kk - 1) <= int(k_) <= kk + 3 and v["p"] >= RB["lp"] and RB["llo"] <= v["e"] <= RB["lhi"]]
+                good = [(int(k_), v) for k_, v in x["lad"].items() if max(2, kk) <= int(k_) <= kk + 2 and v["p"] >= RB["lp"] and RB["llo"] <= v["e"] <= RB["lhi"]
+                        and american(v["a"]) <= RB["lmax"]]
                 if len(good) < 2 or max(k_ for k_, _ in good) < kk:
                     continue
                 wts = [v["p"] * v["e"] for _, v in good]
@@ -953,7 +967,7 @@ def rec_board(sched, picks, store, phi, season, rtrk=None):
                     if s and s["p"] >= RB["pm"]:
                         for bk, a in s["by"].items():
                             e = s["p"] * american(a) - 1
-                            if RB["plo"] <= e <= RB["phi_"]:
+                            if RB["m"] <= s["p"] - 1 / american(a) <= RB["mx"]:
                                 pool.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "lab": ("Over " if side == "ov" else "Under ") + f"{x['line']:g}", "bk": bk, "a": a, "p": s["p"], "e": r3(e)})
                 for k_, v in x["lad"].items():
                     if x["kk"] + 1 <= int(k_) <= x["kk"] + 2 and v["p"] >= RB["pr"]:
