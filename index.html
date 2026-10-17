@@ -194,6 +194,10 @@ table.lad td.lc{white-space:nowrap}table.lad td.lc .px{font:600 13.5px var(--mon
 .big2{font:700 22px var(--display)}.acc{color:var(--accent)}.lnk.big{font:inherit;color:inherit;text-transform:inherit}.pcard.miss{opacity:.85}
 .pcards.two{grid-template-columns:repeat(2,minmax(0,1fr))}.rz .pc-top{gap:12px}
 .rtab th.sep,.rtab td.sep{border-left:1px solid var(--line)}
+table[data-stick] .stk{position:sticky;z-index:2;background:var(--bg)}
+table[data-stick] tbody tr:nth-child(odd)>td.stk{background:color-mix(in srgb,var(--surface) 55%,var(--bg))}
+table[data-stick] thead th.stk{z-index:3}
+table[data-stick] .stk-end{box-shadow:inset -1px 0 0 var(--line),6px 0 8px -6px rgba(0,0,0,.6)}
 /* Receptions picks: up to five a week, all in one row on a wide screen */
 .pcards.five{grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
 .pcards.five .pcard{padding:12px 12px 13px;gap:8px}
@@ -728,7 +732,7 @@ function vRec(){
   h+='<section class="panel"><div class="phead"><h2>Receptions</h2><div class="filters"><label class="f">Rows '+seg("seg-rrows",[["line","With a line"],["all","Everyone"]],withLine?"line":"all")+'</label><span class="tag">'+nl+" lines</span></div></div>";
   h+='<p class="note"><b>xRec</b> is the catches the model expects: recent catches and targets, snap share, the team total, his team\'s passing volume and how much the opponent gets thrown on. <b>Over</b> and <b>Under</b> are the blended chances with their fair prices; <b>Book says</b> is the over chance the books\' two prices imply with the margin removed, and <b>Model says</b> the model alone, so you can see how far apart they are. <b>Next rung</b> and <b>Rung after</b> are one and two catches above his main line (5+ and 6+ on a 3.5 line): the chance he gets there on catches averaged between the model and his main line, as Ladder Watch uses, then the fair price, the best price a book posts on that rung and the edge. Not every book posts every rung, so some have no price. <b>Last 10</b> is how often he cleared this line in his last ten games. <b>Opp faced</b> above 1 means the opponent has been thrown on more than average. Click any heading to sort; hover a price for every book. Catches vary about '+f2(B.phi||1.4,1)+'× a plain count, which is built into every chance here.</p>';
   if(!rows.length)h+='<p class="empty">'+(all.length?"No main lines loaded yet for this week. Switch to Everyone to see every projection.":"No receivers projected for this week.")+"</p>";
-  else{h+='<div class="tw"><table class="rtab"><thead><tr>'+RCOL.map(function(c,i){return '<th tabindex="0" data-rs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(so&&so[0]===i?' aria-sort="'+(so[1]>0?"ascending":"descending")+'"':"")+">"+(rBk()&&/^Best /.test(c[0])?esc(bkShort(rBk()))+" "+c[0].slice(5):c[0])+"</th>"}).join("")+"</tr></thead><tbody>";
+  else{h+='<div class="tw"><table class="rtab" data-stick="3"><thead><tr>'+RCOL.map(function(c,i){return '<th tabindex="0" data-rs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(so&&so[0]===i?' aria-sort="'+(so[1]>0?"ascending":"descending")+'"':"")+">"+(rBk()&&/^Best /.test(c[0])?esc(bkShort(rBk()))+" "+c[0].slice(5):c[0])+"</th>"}).join("")+"</tr></thead><tbody>";
     var rcell=function(z,sid){return '<td class="n k sep">'+z.k+"+ "+(z.p!=null?pct(z.p,1):"–")+'</td><td class="n o">'+(z.p!=null&&z.p>0.005&&z.p<0.995?amer(z.p):"–")+'</td><td class="n">'+(z.a!=null?'<span class="px" data-px="'+esc(sid+"|r"+z.k)+'">'+fmtA(z.a)+"</span> "+bkAb(z.bk):'<span class="o">–</span>')+'</td><td class="n">'+(z.e!=null?'<span class="ev '+evCls(z.e)+'">'+evTxt(z.e)+"</span>":'<span class="o">–</span>')+"</td>"};
     rows.forEach(function(x){var r=rowOf(x.g+"|"+x.id),g=gm(x.g),c=catches(x.g,x.t,x.n),sid=x.g+"|"+x.id,l10=r&&r.rl&&x.line!=null?r.rl.filter(function(v){return v>x.line}).length:null,isPick=picks.some(function(p_){return p_.id===x.id&&p_.g===x.g});
       var side=function(s,lab){if(!s)return '<td class="n o">–</td><td class="n o">–</td><td class="n o">–</td>';var q=rbAt(x,lab==="O"?"ov":"un");if(q===null)return '<td class="n k">'+pct(s.p,1)+' <span class="o">'+amer(s.p)+'</span></td><td class="n o" title="Not posted at '+esc(rBk())+'">–</td><td class="n o">–</td>';
@@ -1088,13 +1092,19 @@ function renderModal(){var m=$("modal");if(!S.open&&S.openName){$("mbox").innerH
   var r=S.open?rowOf(S.open):null;if(!r){if(!m.hidden){m.hidden=true;$("mbox").innerHTML="";document.body.style.overflow=""}return}
   calc(r);var sc=m.scrollTop,was=m.dataset.id===S.open;$("mbox").innerHTML=modalHtml(r);m.hidden=false;m.dataset.id=S.open;document.body.style.overflow="hidden";m.scrollTop=was?sc:0}
 var V={picks:vPicks,games:vGames,feed:vFeed,movers:vMovers,rec:vRec,ladders:vRec,players:vPlayers,teams:vTeams,tracker:vTracker,bets:vBets,model:vModel};
+/* research tables: keep the first columns (team, player, opponent) pinned while the rest scrolls sideways */
+function stickCols(){Array.prototype.forEach.call(document.querySelectorAll("table[data-stick]"),function(t){var n=Math.min(+t.dataset.stick,window.innerWidth<640?2:9),hr=t.tHead&&t.tHead.rows[0];if(!hr)return;var left=[],x=0;
+  for(var i=0;i<n&&i<hr.cells.length;i++){left.push(x);x+=hr.cells[i].getBoundingClientRect().width}
+  Array.prototype.forEach.call(t.rows,function(r){for(var i=0;i<n&&i<r.cells.length;i++){var c=r.cells[i];c.classList.add("stk");if(i===n-1)c.classList.add("stk-end");c.style.left=left[i]+"px"}})})}
+var _stkQ=0;function stickSoon(){if(_stkQ)return;_stkQ=1;requestAnimationFrame(function(){_stkQ=0;stickCols()})}
+window.addEventListener("resize",stickSoon);["load","error"].forEach(function(ev){document.addEventListener(ev,function(e){if(e.target&&e.target.tagName==="IMG"&&e.target.closest&&e.target.closest("table[data-stick]"))stickSoon()},true)});
 function render(keep){
   var y=window.scrollY,ae=document.activeElement&&document.activeElement.id,pos=ae==="pq"?$("pq").selectionStart:null;
   Array.prototype.forEach.call($("tabs").children,function(b){b.setAttribute("aria-selected",b.dataset.tab===S.tab)});
   $("view").innerHTML=V[S.tab]();renderModal();
   var bo=BETS.filter(function(b){return betRes(b).st==="open"}).length,bc=$("betCnt");bc.hidden=!bo;bc.textContent=bo;
   if(document.activeElement!==$("selBook"))$("bookBar").innerHTML=allBooks().length?bookSel("selBook"):"";
-  renderSlip();
+  renderSlip();stickCols();
   if(keep)window.scrollTo(0,y);
   if(S.open){var orow=D.picks.filter(function(x){return x.g+"|"+x.id===S.open})[0];if(orow&&orow.eid){if(NEWS[orow.eid]===undefined)loadNews(orow.eid)}}
   if(ae==="pq"&&$("pq")){$("pq").focus();$("pq").setSelectionRange(pos,pos)}}
