@@ -188,7 +188,15 @@ ul.pwarn{margin:0;padding:10px 12px 10px 28px;border:1px solid color-mix(in srgb
 table.mov td,table.mov th{padding:9px 10px}table.mov td{vertical-align:middle}table.mov .sm{display:block;font-size:11.5px}table.mov td.why{white-space:normal;min-width:230px;font-size:13px;color:var(--soft);line-height:1.55}table.mov td.why b{color:var(--ink);font-weight:600}table.mov tr.flip>td{background:color-mix(in srgb,var(--accent) 7%,transparent)}table.mov tr.flip>td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 .tag.t425{background:#ff8a4c;color:#1e1208;border-color:transparent;font-weight:700}
 table.lad td.lc{white-space:nowrap}table.lad td.lc .px{font:600 13.5px var(--mono)}table.lad td.lc i{display:block;font:500 11.5px var(--mono);font-style:normal}table.lad td.lc.none{color:var(--muted);font-size:12px}table.lad td.lc.both{box-shadow:inset 0 0 0 1.5px var(--made);border-radius:6px}table.lad .sm2{font-size:11.5px}table.lad th,table.lad td{padding:8px 9px}
-.dot.r{background:#ff8a4c}
+.dot.r,.dot.ro,.dot.ru{background:#ff8a4c}
+.rp .pc-top{font-size:14px}.rp-g{font:600 18px var(--display);letter-spacing:.06em;color:var(--accent)}.rp-side{font-weight:700}.rp-side.ov{color:var(--made);border-color:color-mix(in srgb,var(--made) 55%,transparent)}.rp-side.un{color:var(--miss);border-color:color-mix(in srgb,var(--miss) 55%,transparent)}
+.rp-ls{display:flex;flex-direction:column;gap:7px;font-size:13px}.rp-l{display:flex;justify-content:space-between;gap:10px;align-items:baseline}.rp-l>span{color:var(--muted)}.rp-l b{font-weight:600;text-align:right}.rp-ls hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+.big2{font:700 22px var(--display)}.acc{color:var(--accent)}.lnk.big{font:inherit;color:inherit;text-transform:inherit}.pcard.miss{opacity:.85}
+.pcards.two{grid-template-columns:repeat(2,minmax(0,1fr))}.rz .pc-top{gap:12px}.rz-l{display:flex;gap:8px;align-items:baseline;font-size:13.5px}.rz-l b{margin-left:auto}.rz-f{border-top:1px solid var(--line);padding-top:8px;font-size:13px;color:var(--soft)}
+table.lw td.lc.pk{background:color-mix(in srgb,var(--made) 12%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--made) 60%,transparent);border-radius:8px}table.lw td.lc.hitc{background:color-mix(in srgb,var(--made) 30%,transparent)}table.lw td.lnbar{border-left:2px solid var(--accent)}
+table.rtab th,table.rtab td{padding:8px 9px;white-space:nowrap}
+@media(max-width:900px){.pcards.two{grid-template-columns:minmax(0,1fr)}}
+.warnline{border-left:3px solid var(--accent);padding-left:10px}
 </style>
 
 <div class="wrap">
@@ -212,7 +220,7 @@ table.lad td.lc{white-space:nowrap}table.lad td.lc .px{font:600 13.5px var(--mon
       <button role="tab" data-tab="games">Games</button>
       <button role="tab" data-tab="feed">TD Feed</button>
       <button role="tab" data-tab="movers">Movers</button>
-      <button role="tab" data-tab="ladders">Ladders</button>
+      <button role="tab" data-tab="rec">Receptions</button>
       <button role="tab" data-tab="players">Players</button>
       <button role="tab" data-tab="teams">Teams</button>
       <button role="tab" data-tab="tracker">Tracker</button>
@@ -592,6 +600,83 @@ function vMovers(){
       '<td class="why">'+x.c.map(function(c){return"<div>"+mvCause(c)+"</div>"}).join("")+"</td></tr>"});
   return h+"</tbody></table></div></section>"}
 
+/* ---------- Receptions tab: picks, ladder watch, parlay ideas, research table ---------- */
+var _rrow;function recRow(g,id){if(!_rrow){_rrow={};((D.recb||{}).rows||[]).forEach(function(x){_rrow[x.g+"|"+x.id]=x})}return _rrow[g+"|"+id]}
+function catTag(gid,t,n,line){var c=catches(gid,t,n);if(c.n==null)return"";var cls=line!=null?(c.n>line?" w":c.fin?" l":""):"";return ' <span class="tag'+(c.fin?cls:" lv")+'">'+(c.fin?"":'<i class="ldot"></i>')+c.n+" rec"+(c.fin?"":" · live")+"</span>"}
+function rpRes(p){var c=catches(p.g,p.t,p.n);if(c.n==null)return null;var win=p.side==="o"?c.n>p.line:c.n<p.line,done=c.fin||(p.side==="o"&&win)||(p.side==="u"&&!win);if(!done)return{open:1,n:c.n};var d_=dec(p.a);return{n:c.n,w:win?1:0,pl:win?p.u*(d_-1):-p.u}}
+function rlRes(l){var c=catches(l.g,l.t,l.n);if(c.n==null)return null;var pl=0,hit=0,open=0;l.rungs.forEach(function(x){var won=c.n>=x[0];if(won){hit++;pl+=x[5]*(dec(x[1])-1)}else if(c.fin)pl-=x[5];else open++});return{n:c.n,hit:hit,pl:pl,open:open&&!c.fin,fin:c.fin}}
+function legSt(l){var c=catches(l.g,l.t,l.n);if(c.n==null)return"open";var m=/^(Over|Under) ([\d.]+)/.exec(l.lab),k=/^(\d+)\+/.exec(l.lab);
+  if(m&&m[1]==="Under"){if(c.n>+m[2])return"lost";return c.fin?"won":"open"}var need=m?+m[2]:+k[1]-0.5;if(c.n>need)return"won";return c.fin?"lost":"open"}
+function rzRes(i){var st=i.legs.map(legSt);if(st.indexOf("lost")>=0)return{st:"lost",pl:-i.u};if(st.every(function(s){return s==="won"}))return{st:"won",pl:i.u*(i.d-1)};return{st:"open"}}
+function recTally(list,f){var n=0,w=0,u=0;list.forEach(function(x){var r=f(x);if(!r||r.open||r.st==="open")return;n++;if(r.w||r.st==="won"||r.hit)w++;u+=r.pl});return{n:n,w:w,u:u}}
+var RCOL=[["Team",function(x){return x.t},"",""],["Player",function(x){return x.n},"",""],["Opponent",function(x){return x.o},"",""],["xRec",function(x){return x.mu},"Expected catches (model)","n k"],
+  ["Catches",function(x){var c=catches(x.g,x.t,x.n);return c.n},"Catches so far (live) or final","n"],["Line",function(x){return x.line},"Commonest main line across books","n"],
+  ["xRec − line",function(x){return x.line!=null?x.mu-x.line:null},"","n"],["Over",function(x){return x.ov?x.ov.p:null},"Over chance: model and market averaged half and half · fair price","n k"],
+  ["Best over",function(x){return x.ov?dec(x.ov.a):null},"Best over price at that line","n"],["Edge",function(x){return x.ov?x.ov.e:null},"","n"],
+  ["Under",function(x){return x.un?x.un.p:null},"Under chance (blended) · fair price","n k"],["Best under",function(x){return x.un?dec(x.un.a):null},"","n"],["Edge",function(x){return x.un?x.un.e:null},"","n"],
+  ["Book says",function(x){return x.mk},"Over chance the books' two prices imply, margin removed","n"],["Model says",function(x){return x.pm},"Over chance from the model alone","n"],
+  ["Last 10",function(x){var r=rowOf(x.g+"|"+x.id);return r&&r.rl&&x.line!=null?r.rl.filter(function(v){return v>x.line}).length/Math.max(1,r.rl.length):null},"Games over this line in his last ten","n"],
+  ["L10 rec",function(x){var r=rowOf(x.g+"|"+x.id);return r&&r.rl&&r.rl.length?r.rl.reduce(function(a,b){return a+b},0)/r.rl.length:null},"Average catches over his last ten games","n"],
+  ["Rec/g",function(x){var r=rowOf(x.g+"|"+x.id);return r?r.rg:null},"Recent catches a game (weighted to recent games)","n"],["Tgt/g",function(x){var r=rowOf(x.g+"|"+x.id);return r?r.tgg:null},"Recent targets a game","n"],
+  ["Catch %",function(x){var r=rowOf(x.g+"|"+x.id);return r?r.ctr:null},"Catches per target, recent","n"],["Team tgt/g",function(x){var r=rowOf(x.g+"|"+x.id);return r?r.tt:null},"His team's recent targets a game","n"],
+  ["Opp faced",function(x){var r=rowOf(x.g+"|"+x.id);return r?r.of:null},"Targets the opponent has been facing, against league average (above 1 = a pass funnel)","n"],["Snaps",function(x){var r=rowOf(x.g+"|"+x.id);return r?r.sn:null},"Recent snap share","n"]];
+function vsGid(gid,t,o){return (String(gid).split("_")[3]===t?"vs ":"@ ")+o}
+function vRec(){
+  var B=D.recb||{},rule=B.rule||{},WM=B.weeks||{},ws=Object.keys(WM).map(Number).sort(function(a,b){return a-b});
+  if(ws.indexOf(S.rwk)<0)S.rwk=ws.indexOf(S.wk)>=0?S.wk:ws.length?ws[ws.length-1]:S.wk;var wk=S.rwk,mode=WM[String(wk)]||"live";
+  var picks=(B.picks||[]).filter(function(p_){return p_.wk===wk}),lads=(B.lad||[]).filter(function(l){return l.wk===wk}),parl=(B.parl||[]).filter(function(i){return i.wk===wk});
+  var tp=recTally(picks,rpRes),tl=recTally(lads,rlRes),tz=recTally(parl,rzRes),U=function(z){return z.n?z.w+" of "+z.n+" · "+uTxt(z.u):"no results yet"};
+  var wsel=ws.length?wkNav("rw",ws,wk,'<select id="selRw" aria-label="Week">'+ws.map(function(w){return '<option value="'+w+'"'+(w===wk?" selected":"")+">Week "+w+(WM[w]==="retro"?" · back-check":WM[w]==="live"?" · this week":"")+"</option>"}).join("")+"</select>"):"";
+  var h='<section class="panel"><div class="phead"><h2>Receptions picks · Week '+wk+'</h2><div class="filters"><span class="tag">'+U(tp)+"</span>"+wsel+"</div></div>";
+  if(mode==="retro")h+='<p class="note warnline"><b>Back-check week.</b> No picks were recorded live this week, so this is what the board would have shown, rebuilt from the prices stored an hour before each kickoff and the catches a model that never saw 2026 expected. Results are final.</p>';
+  h+='<p class="note">Each player\'s chance is the model\'s averaged half and half with the market\'s own (each book\'s over and under on the main line, margin removed). A pick needs that chance at least '+Math.round((rule.m||.02)*100)+' points above the break-even of the best price on the commonest line, '+(rule.books||3)+' or more books on that line, and the model within '+Math.round((rule.gap||.12)*100)+' points of the market (a bigger gap is marked CHECK in the table, which more often means news the model has not seen). Ranked by that margin, one per team, one pick for every three games and five at most. Overs and unders both qualify. Each pick locks when its game starts. These thresholds are starting guesses: the record builds on the Tracker.</p>';
+  if(!picks.length)h+='<p class="empty">No picks this week yet. They need main-line receptions prices from three or more books.</p>';
+  else h+='<div class="pcards">'+picks.map(function(p_){var g=gm(p_.g),r=rpRes(p_),d_=dec(p_.a),st=r&&!r.open?(r.w?"hit":"miss"):"",x=recRow(p_.g,p_.id),row=rowOf(p_.g+"|"+p_.id);
+    var L=function(a,b){return '<div class="rp-l"><span>'+a+"</span><b>"+b+"</b></div>"};
+    return '<article class="pcard rp '+st+'"><div class="pc-top">'+lg(p_.t)+'<b class="rp-g">'+p_.t+" "+vsGid(p_.g,p_.t,p_.o)+'</b><span class="tag rp-side '+(p_.side==="o"?"ov":"un")+'">'+(p_.side==="o"?"Over ":"Under ")+p_.line+"</span></div>"+
+      '<div class="pc-game"><span class="tag pos">'+p_.pos+"</span>"+(g?esc(g.t):(D.kick||{})[p_.g]?esc(D.kick[p_.g]):"")+(p_.lk?' <span class="tag">Locked</span>':"")+'</div><div class="pc-name">'+(row?'<button class="lnk big" type="button" data-open="'+esc(p_.g+"|"+p_.id)+'">'+esc(p_.n)+"</button>":esc(p_.n))+"</div>"+
+      (r?'<div><span class="tag '+(r.open?"lv":r.w?"rw":"rl")+'">'+r.n+" rec · "+(r.open?"live":r.w?"won "+uTxt(r.pl):"lost "+uTxt(r.pl))+"</span></div>":"")+
+      '<div class="rp-ls">'+L("Best price",'<span class="px big2" data-px="'+esc(p_.g+"|"+p_.id)+"|"+(p_.side==="o"?"O":"U")+p_.line+'">'+fmtA(p_.a)+'</span> <span class="o">'+esc(p_.bk)+"</span>")+L("Edge",'<span class="ev '+evCls(p_.e)+'">'+evTxt(p_.e)+"</span>")+
+      L("Above break-even","+"+(p_.m*100).toFixed(1)+' pts <span class="o">needs '+pct(1/d_,1)+"</span>")+L("Suggested stake",'<span class="acc">'+f2(p_.u)+"u</span>")+L("Pick chance · fair",pct(p_.p,1)+" · "+amer(p_.p))+
+      L("Model says",pct(p_.side==="o"?p_.pm:1-p_.pm,1))+L("Market says",p_.mk!=null?pct(p_.side==="o"?p_.mk:1-p_.mk,1):"–")+'<hr>'+L("Expected catches",f2(p_.mu,2))+
+      (row?L("Catches · targets a game",f2(row.rg,1)+" · "+f2(row.tgg,1))+L((p_.side==="o"?"Over":"Under")+" in last 10",(row.rl||[]).filter(function(v){return p_.side==="o"?v>p_.line:v<p_.line}).length+" of "+(row.rl||[]).length)+L(p_.o+" targets faced",f2(row.of,2)+"× league"):"")+"</div></article>"}).join("")+"</div>";
+  h+="</section>";
+  // ladder watch
+  h+='<section class="panel"><div class="phead"><h2>Ladder watch</h2><div class="filters"><span class="tag">'+(tl.n?uTxt(tl.u)+" · "+tl.w+" of "+tl.n+" ladders hit a rung":"no results yet")+'</span><span class="tag t8">'+lads.length+" candidate"+(lads.length===1?"":"s")+" · best total edge first</span></div></div>";
+  h+='<p class="note">Players with two or more rungs near his line (one below it to three above) that each beat their price, reaching at least the over rung of his main line. A rung counts only if its chance is '+Math.round((rule.lp||.2)*100)+'% or better and its edge between +'+Math.round((rule.llo||.02)*100)+'% and +'+Math.round((rule.lhi||.2)*100)+'%. One for every three games, five at most. Shaded rungs are the ones to ladder, with a suggested split of one unit underneath (more on the likelier, better-value rungs). The chance behind each rung uses expected catches averaged between the model and what his main line implies. The amber bar marks his main line. Locks at kickoff.</p>';
+  if(!lads.length)h+='<p class="empty">No ladder candidates this week yet.</p>';
+  else{var RG=[2,3,4,5,6,7,8,9,10];h+='<div class="tw"><table class="lad lw"><thead><tr><th>Team</th><th>Player</th><th>Opponent</th><th class="n">xRec</th><th class="n">Line</th>'+RG.map(function(k){return '<th class="n">'+k+"+</th>"}).join("")+'<th class="n">Ladder edge</th><th class="n">Catches</th></tr></thead><tbody>';
+    lads.forEach(function(l){var x=recRow(l.g,l.id),pick={};l.rungs.forEach(function(z){pick[z[0]]=z});var res=rlRes(l),g=gm(l.g),ln=l.line!=null?Math.floor(l.line)+1:null;
+      h+="<tr><td>"+tmL(l.t)+'</td><td><span class="tag pos">'+l.pos+'</span> <span class="pn">'+esc(l.n)+'</span></td><td><span class="o">'+vsGid(l.g,l.t,l.o)+'</span></td><td class="n"><b>'+f2(l.mu,1)+'</b></td><td class="n acc">'+(l.line!=null?l.line:"–")+"</td>"+
+        RG.map(function(k){var z=pick[k],c=x&&x.lad[k];var bar=k===ln?" lnbar":"";if(z){var hit=res&&res.n!=null&&res.n>=k;return '<td class="n lc pk'+bar+(hit?" hitc":"")+'"><span class="px" data-px="'+esc(l.g+"|"+l.id)+"|r"+k+'">'+fmtA(z[1])+'</span><i class="ev '+evCls(z[4])+'">'+evTxt(z[4])+'</i><i class="acc">'+f2(z[5])+"u</i></td>"}
+          if(c)return '<td class="n lc'+bar+'"><span class="px" data-px="'+esc(l.g+"|"+l.id)+"|r"+k+'">'+fmtA(c.a)+'</span><i class="ev '+evCls(c.e)+'">'+evTxt(c.e)+"</i></td>";return '<td class="n lc none'+bar+'"></td>'}).join("")+
+        '<td class="n"><span class="ev '+evCls(l.te)+'">'+evTxt(l.te)+'</span> <span class="o">'+l.rungs.length+" rungs</span>"+(res?' <span class="tag">'+uTxt(res.pl)+(res.open?" · live":"")+"</span>":"")+'</td><td class="n">'+(res?res.n+(res.fin?"":" live"):"–")+"</td></tr>"});
+    h+="</tbody></table></div>"}
+  h+="</section>";
+  // parlay ideas
+  h+='<section class="panel"><div class="phead"><h2>Parlay ideas</h2><div class="filters"><span class="tag">'+U(tz)+'</span><span class="tag">experiment · not in net units</span></div></div>';
+  h+='<p class="note">Legs that each beat their own price, one a player and each from a different game, so the book pays the full multiplied price and the legs do not lean on each other. A leg is a main-line over or under with a '+Math.round((rule.pm||.45)*100)+'% or better chance, or a ladder rung one or two above the line with '+Math.round((rule.pr||.3)*100)+'% or better, each '+Math.round((rule.plo||.03)*100)+'% to '+Math.round((rule.phi_||.25)*100)+'% over its price at that book. Each idea is priced at the one book that posts every leg and pays the most. The chance multiplies the legs\' chances; edges compound, and so do misses, so the stake is an eighth of Kelly, 0.1u to 0.5u. The ideas lock when their first game starts.</p>';
+  if(!parl.length)h+='<p class="empty">No parlay ideas this week yet.</p>';
+  else h+='<div class="pcards two">'+parl.map(function(i){var r=rzRes(i);return '<article class="pcard rz"><div class="pc-top"><b>'+i.legs.length+"-leg at "+esc(i.bk)+'</b><b class="big2">'+fmtA(d2a(i.d))+'</b><span class="tag '+(r.st==="won"?"rw":r.st==="lost"?"rl":"")+'">'+(r.st==="open"?(i.lk?"locked":"open"):r.st)+"</span></div>"+
+    i.legs.map(function(l){var c=catches(l.g,l.t,l.n);return '<div class="rz-l"><span class="pn">'+esc(l.n)+'</span> <span class="o">'+l.t+" · "+esc(l.lab)+" "+fmtA(l.a)+" · "+pct(l.p,1)+'</span><b>'+(c.n!=null?c.n:"")+"</b></div>"}).join("")+
+    '<div class="rz-f">Chance <b>'+pct(i.q,1)+"</b> · Fair <b>"+amer(i.q)+"</b> · Edge <b>"+evTxt(i.ev)+"</b> · Stake <b>"+f2(i.u)+"u</b>"+(r.st!=="open"?" · Result <b>"+uTxt(r.pl)+"</b>":"")+"</div></article>"}).join("")+"</div>";
+  h+="</section>";
+  // research table
+  var all=(B.rows||[]).filter(function(x){var g=gm(x.g);return (x.wk!=null?x.wk:g?g.wk:null)===wk}),withLine=S.rrows!=="all",rows=all.filter(function(x){return !withLine||x.line!=null}),so=S.rsort;
+  if(so){var fn=RCOL[so[0]][1];rows.sort(function(a,b){var x=fn(a),y=fn(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return (typeof x==="string"?x.localeCompare(y):x-y)*so[1]})}
+  else rows.sort(function(a,b){return Math.max(b.ov?b.ov.e:-9,b.un?b.un.e:-9)-Math.max(a.ov?a.ov.e:-9,a.un?a.un.e:-9)||b.mu-a.mu});
+  var nl=all.filter(function(x){return x.line!=null}).length;
+  h+='<section class="panel"><div class="phead"><h2>Receptions</h2><div class="filters"><label class="f">Rows '+seg("seg-rrows",[["line","With a line"],["all","Everyone"]],withLine?"line":"all")+'</label><span class="tag">'+nl+" lines</span></div></div>";
+  h+='<p class="note"><b>xRec</b> is the catches the model expects: recent catches and targets, snap share, the team total, his team\'s passing volume and how much the opponent gets thrown on. <b>Over</b> and <b>Under</b> are the blended chances with their fair prices; <b>Book says</b> is the over chance the books\' two prices imply with the margin removed, and <b>Model says</b> the model alone, so you can see how far apart they are. <b>Last 10</b> is how often he cleared this line in his last ten games. <b>Opp faced</b> above 1 means the opponent has been thrown on more than average. Click any heading to sort; hover a price for every book. Catches vary about '+f2(B.phi||1.4,1)+'× a plain count, which is built into every chance here.</p>';
+  if(!rows.length)h+='<p class="empty">'+(all.length?"No main lines loaded yet for this week. Switch to Everyone to see every projection.":"No receivers projected for this week.")+"</p>";
+  else{h+='<div class="tw"><table class="rtab"><thead><tr>'+RCOL.map(function(c,i){return '<th tabindex="0" data-rs="'+i+'"'+(c[3]?' class="'+c[3]+'"':"")+(c[2]?' title="'+esc(c[2])+'"':"")+(so&&so[0]===i?' aria-sort="'+(so[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+"</tr></thead><tbody>";
+    rows.forEach(function(x){var r=rowOf(x.g+"|"+x.id),g=gm(x.g),c=catches(x.g,x.t,x.n),sid=x.g+"|"+x.id,l10=r&&r.rl&&x.line!=null?r.rl.filter(function(v){return v>x.line}).length:null,isPick=picks.some(function(p_){return p_.id===x.id&&p_.g===x.g});
+      var side=function(s,lab){if(!s)return '<td class="n o">–</td><td class="n o">–</td><td class="n o">–</td>';return '<td class="n k">'+pct(s.p,1)+' <span class="o">'+amer(s.p)+'</span></td><td class="n"><span class="px" data-px="'+esc(sid)+"|"+lab+x.line+'">'+fmtA(s.a)+"</span> "+bkAb(s.bk)+'</td><td class="n"><span class="ev '+evCls(s.e)+'">'+evTxt(s.e)+"</span></td>"};
+      h+="<tr><td>"+tmL(x.t)+'</td><td><span class="tag pos">'+x.pos+"</span> "+(r?'<button class="lnk" type="button" data-open="'+esc(sid)+'">'+esc(x.n)+"</button>":esc(x.n))+(isPick?' <span class="tag pk">Pick</span>':"")+(x.check?' <span class="tag hot" title="Model more than '+Math.round((rule.gap||.12)*100)+' points from the market: check the news">Check</span>':"")+'</td><td><span class="o">'+vsGid(x.g,x.t,x.o)+'</span></td><td class="n k"><b>'+f2(x.mu,2)+'</b></td><td class="n">'+(c.n!=null?c.n+(c.fin?"":' <span class="o">live</span>'):"–")+'</td><td class="n acc">'+(x.line!=null?x.line:"–")+'</td><td class="n">'+(x.line!=null?((x.mu-x.line>=0?"+":"")+f2(x.mu-x.line)):"–")+"</td>"+
+        side(x.ov,"O")+side(x.un,"U")+'<td class="n">'+(x.mk!=null?pct(x.mk,1):"–")+'</td><td class="n">'+(x.pm!=null?pct(x.pm,1):"–")+'</td><td class="n">'+(l10!=null?l10+" of "+r.rl.length:"–")+'</td><td class="n">'+(r&&r.rl&&r.rl.length?f2(r.rl.reduce(function(a,b){return a+b},0)/r.rl.length,1):"–")+'</td><td class="n">'+(r?f2(r.rg,1):"–")+'</td><td class="n">'+(r?f2(r.tgg,1):"–")+'</td><td class="n">'+(r&&r.ctr!=null?pct(r.ctr):"–")+'</td><td class="n">'+(r?f2(r.tt,1):"–")+'</td><td class="n">'+(r?f2(r.of,2)+"×":"–")+'</td><td class="n">'+(r?pct(r.sn):"–")+"</td></tr>"});
+    h+="</tbody></table></div>"}
+  h+="</section>";
+  return h+(mode==="live"&&wk===S.wk?vLadders():"")}
 /* ---------- Receptions ladders ---------- */
 /* Expected catches come from build_data.py (rec_design / fit_rec). Ladder chances use a negative binomial with that mean and the fitted
    spread (variance = phi x mean, phi about 1.4): catches vary more than a plain Poisson count, which matters most on the high rungs. */
@@ -615,7 +700,7 @@ function vLadders(){
   var rows=all.filter(function(x){return (pos==="all"||x.r.pos===pos)&&(gsel==="all"||x.r.g===gsel)&&(show==="all"||x.anyp)&&(show!=="value"||(x.be!=null&&x.be>=0.05))});
   rows.sort(function(a,b){return (b.be==null?-9:b.be)-(a.be==null?-9:a.be)||b.r.rm-a.r.rm});
   var gs=D.sched.filter(function(g){return g.wk===S.wk}),priced=all.filter(function(x){return x.anyp}).length;
-  var h='<section class="panel"><div class="phead"><h2>Receptions ladders · Week '+S.wk+'</h2><div class="filters"><label class="f">Show '+seg("seg-lshow",[["priced","Priced"],["value","Edge 5%+"],["all","All"]],show)+'</label><label class="f">Position '+seg("seg-lpos",[["all","All"],["WR","WR"],["TE","TE"],["RB","RB"]],pos)+'</label><label class="f">Book '+seg("seg-lbk",[["best","Best"]].concat(Object.keys(books).indexOf("FanDuel")>=0?[["FanDuel","FanDuel"]]:[]),S.lbk||"best")+'</label><label class="f" for="selLg">Game <select id="selLg"><option value="all">All games</option>'+gs.map(function(g){return '<option value="'+g.gid+'"'+(gsel===g.gid?" selected":"")+">"+g.a+" @ "+g.h+"</option>"}).join("")+"</select></label></div></div>";
+  var h='<section class="panel"><div class="phead"><h2>All ladders · Week '+S.wk+'</h2><div class="filters"><label class="f">Show '+seg("seg-lshow",[["priced","Priced"],["value","Edge 5%+"],["all","All"]],show)+'</label><label class="f">Position '+seg("seg-lpos",[["all","All"],["WR","WR"],["TE","TE"],["RB","RB"]],pos)+'</label><label class="f">Book '+seg("seg-lbk",[["best","Best"]].concat(Object.keys(books).indexOf("FanDuel")>=0?[["FanDuel","FanDuel"]]:[]),S.lbk||"best")+'</label><label class="f" for="selLg">Game <select id="selLg"><option value="all">All games</option>'+gs.map(function(g){return '<option value="'+g.gid+'"'+(gsel===g.gid?" selected":"")+">"+g.a+" @ "+g.h+"</option>"}).join("")+"</select></label></div></div>";
   h+='<p class="note">Expected catches come from recent catches and targets, snap share, the team total, the team\'s recent passing volume and how much the opponent gets thrown on. Each rung\'s chance uses a spread fitted to real games (catches vary about '+f2(((D.model||{}).rec||{}).phi||1.4,1)+'× as much as a simple count), which matched every rung of the 2025–26 back-check. Each cell is the '+(S.lbk==="FanDuel"?"FanDuel":"best")+' price with its edge; hover for the fair price and the <b>shape check</b>: the catches the book\'s own ladder implies, and what each rung would be worth at that number. A rung that is good value on both counts is outlined. <b>Experimental:</b> collected with every price pull from week 7 of 2026 on (earlier 2026 games can be loaded once from Actions), graded on the Tracker. '+priced+" of "+all.length+" receivers priced this week.</p>";
   if(!rows.length)return h+'<p class="empty">'+(all.length&&!priced?"No receptions ladders loaded for this week yet. They arrive with each game's price pulls (the day before, three hours before and an hour before kickoff).":"Nothing in this view.")+"</p></section>";
   var used=RUNGS.filter(function(k){return rows.some(function(x){return x.cells[k].a!=null})});if(!used.length)used=[3,4,5,6,7,8];
@@ -739,6 +824,13 @@ function vTracker(){
     var lst=val.slice().sort(function(a,b){return b.r[1]-a.r[1]||b.e-a.e});
     h+='<h3>Value picks, newest first</h3><div class="tw"><table><thead><tr><th>Wk</th><th>Team</th><th>Player</th><th>Opponent</th><th class="n">Model</th><th class="n">Price</th><th class="n">Edge</th><th>Result</th><th class="n">Units</th></tr></thead><tbody>'+lst.slice(0,300).map(function(b){var r=b.r;return "<tr><td>"+wkLab(r[0],r[1])+'</td><td>'+tmL(r[4])+'</td><td><span class="tag pos">'+r[6]+'</span> <span class="pn">'+esc(r[3])+'</span></td><td><span class="o">'+(String(r[2]).split("_")[3]===r[4]?"vs ":"@ ")+r[5]+'</span></td><td class="n">'+pct(r[7],1)+'</td><td class="n">'+fmtA(b.a)+' <span class="o">'+esc(b.bk||"")+'</span></td><td class="n"><span class="ev '+evCls(b.e)+'">'+evTxt(b.e)+"</span></td><td>"+(r[8]?'<span class="tag w">Scored'+(r[9]>1?" ×"+r[9]:"")+"</span>":'<span class="tag l">No TD</span>')+'</td><td class="n">'+(b.pl>=0?"+":"")+f2(b.pl)+"</td></tr>"}).join("")+"</tbody></table></div>"+(lst.length>300?'<p class="note">Showing 300 of '+lst.length+". Pick a week to see the rest.</p>":"")}
   else h+='<p class="note"><b>No stored prices for '+(S.twk?"this week":S.tseason)+" yet.</b> Load them once from Actions → Update → Run workflow, choosing which seasons under past prices.</p>";
+  if(S.tseason===D.season&&D.recb&&(D.recb.picks||[]).length){var RB_=D.recb,pk_=(RB_.picks||[]).filter(function(x){return !S.twk||x.wk===S.twk}),ld_=(RB_.lad||[]).filter(function(x){return !S.twk||x.wk===S.twk}),pz_=(RB_.parl||[]).filter(function(x){return !S.twk||x.wk===S.twk});
+    var T_=function(lab,list,f,note){var z=recTally(list,f),st=0;list.forEach(function(x){var r=f(x);if(r&&!r.open&&r.st!=="open")st+=x.u!=null?x.u:x.rungs?1:0});return "<tr><td>"+lab+'</td><td class="n">'+z.n+'</td><td class="n">'+z.w+'</td><td class="n">'+(z.n?pct(z.w/z.n):"–")+'</td><td class="n">'+(z.n?uTxt(z.u,1):"–")+'</td><td class="n k"><span class="ev '+(st?evCls(z.u/st):"")+'">'+(st?evTxt(z.u/st):"–")+'</span></td><td class="o" style="white-space:normal">'+note+"</td></tr>"};
+    var LIVE=function(x){return !x.rt},RT=function(x){return !!x.rt};
+    h+='<h2 class="sep">Receptions board</h2><p class="note">The Receptions tab\'s picks, ladders and parlay ideas, at their suggested stakes. Back-check weeks were rebuilt afterwards from the stored prices; live weeks were recorded before kickoff.</p><div class="tw"><table class="mini"><thead><tr><th></th><th class="n">Bets</th><th class="n">Won</th><th class="n">Hit rate</th><th class="n">Units</th><th class="n k">Return</th><th></th></tr></thead><tbody>'+
+      T_("<b>Receptions picks</b> · live",pk_.filter(LIVE),rpRes,"Recorded before kickoff")+T_("Receptions picks · back-check",pk_.filter(RT),rpRes,"Rebuilt from stored prices")+
+      T_("<b>Ladder watch</b> · live",ld_.filter(LIVE),rlRes,"Won = at least one rung hit; return per unit laddered")+T_("Ladder watch · back-check",ld_.filter(RT),rlRes,"")+
+      T_("<b>Parlay ideas</b> · live",pz_.filter(LIVE),rzRes,"Not in net units")+T_("Parlay ideas · back-check",pz_.filter(RT),rzRes,"")+"</tbody></table></div>"}
   var lg_=ladderGraded().filter(function(b){return b.r[0]===S.tseason&&(!S.twk||b.r[1]===S.twk)}),rt=(D.rtrk||[]).filter(function(r){return r[0]===S.tseason&&(!S.twk||r[1]===S.twk)});
   if(rt.length){h+='<h2 class="sep">Receptions ladders</h2><p class="note">Every stored alt-receptions rung of '+(S.twk?"this week":S.tseason)+"'s finished games, one unit each at the best stored price, graded on the catches the model expected before kickoff. "+lg_.length+" priced rungs. Experimental: a few hundred rungs per band before reading much into it.</p>";
     var cal=[2,3,4,5,6,7,8,10].map(function(k){var n=rt.length,a=0,e=0;rt.forEach(function(r){if(r[8]>=k)a++;e+=nbGe(r[7],k)});return "<tr><td>"+k+'+</td><td class="n">'+pct(e/n,1)+'</td><td class="n"><b>'+pct(a/n,1)+"</b></td></tr>"}).join("");
@@ -797,9 +889,9 @@ var BETS=ls("atd-bets")||[],UNIT=ls("atd-unit")||10;
 function saveBets(){ls("atd-bets",BETS)}
 function say2(t){var el=$("toast");el.textContent=t;el.hidden=false;clearTimeout(say2.t);say2.t=setTimeout(function(){el.hidden=true},2200)}
 function addBet(key){var parts=key.split("|"),book=parts.pop(),kind=parts.pop(),id=parts.join("|"),r=rowOf(id);if(!r)return;var g=gm(r.g),od=oddsFor(r.g);
-  var rk=kind.charAt(0)==="r"?+kind.slice(1):0,by=rk?(((od.byr[norm(r.n)]||{})[rk])||{}):(kind==="f"?od.byf:kind==="t"?od.byt:od.by)[norm(r.n)]||{},a=book==="Your price"?MAN[id]:by[book];if(a==null)return;
-  BETS.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),gid:r.g,pid:r.id,n:r.n,t:r.t,o:r.o,home:g&&g.h===r.t?1:0,pos:r.pos,mk:rk?"r":kind,k:rk||undefined,book:book,odds:a,listed:a,units:1,settle:"auto",ko:g?g.ts:null,added:new Date().toISOString()});
-  saveBets();unpin();say2("Added: "+r.n+" "+(rk?rk+"+ receptions":MKN[kind])+" "+fmtA(a)+" at "+book);render(true)}
+  var rk=kind.charAt(0)==="r"?+kind.slice(1):0,ouk=/^[OU]/.test(kind),by=ouk?ouBy(r,kind):rk?(((od.byr[norm(r.n)]||{})[rk])||{}):(kind==="f"?od.byf:kind==="t"?od.byt:od.by)[norm(r.n)]||{},a=book==="Your price"?MAN[id]:by[book];if(a==null)return;
+  BETS.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),gid:r.g,pid:r.id,n:r.n,t:r.t,o:r.o,home:g&&g.h===r.t?1:0,pos:r.pos,mk:ouk?(kind.charAt(0)==="O"?"ro":"ru"):rk?"r":kind,k:ouk?+kind.slice(1):rk||undefined,book:book,odds:a,listed:a,units:1,settle:"auto",ko:g?g.ts:null,added:new Date().toISOString()});
+  saveBets();unpin();say2("Added: "+r.n+" "+kindLab(kind)+" "+fmtA(a)+" at "+book);render(true)}
 var _off;function official(){if(_off)return _off;var o={};(D.feed||[]).forEach(function(f){var g=o[f[2]]=o[f[2]]||{td:{},first:null};var k=norm(f[3]);if(g.first==null)g.first=k;g.td[k]=(g.td[k]||0)+1});(D.trk||[]).forEach(function(r){if(!o[r[2]])o[r[2]]={td:{},first:null}});return _off=o}
 /* what has happened for a bet: touchdowns so far, whether he scored first, whether the game is over */
 function betInfo(b){var k=norm(b.n),L=(D.live||{})[b.gid],O=official()[b.gid];
@@ -807,7 +899,8 @@ function betInfo(b){var k=norm(b.n),L=(D.live||{})[b.gid],O=official()[b.gid];
   if(L)return{td:(L.td||{})[k]||0,first:L.first===k,anyFirst:!!L.first,final:L.st==="post"};
   return{td:0,first:false,anyFirst:false,final:!!(b.ko&&D.through&&new Date(b.ko).getTime()+3*864e5<new Date(D.through).getTime())}}
 function betRes(b){if(b.settle==="won"||b.settle==="lost"||b.settle==="void")return{st:b.settle,lab:b.settle==="void"?"Void":b.settle==="won"?"Won":"Lost"};
-  if(b.mk==="r"){var rr=recOf(b.gid,b.n);return rr==null?{st:"open",lab:"Open"}:rr>=b.k?{st:"won",lab:rr+" rec · won"}:{st:"lost",lab:rr+" rec · lost"}}
+  if(b.mk==="r"||b.mk==="ro"||b.mk==="ru"){var cs=catches(b.gid,b.t,b.n),rr=cs.n,win=b.mk==="r"?rr>=b.k:b.mk==="ro"?rr>b.k:rr<b.k,sure=b.mk==="r"||b.mk==="ro"?(rr!=null&&win):(rr!=null&&!win);
+    return rr==null?{st:"open",lab:"Open"}:(cs.fin||sure)?{st:win?"won":"lost",lab:rr+" rec · "+(win?"won":"lost")}:{st:"open",lab:"Open · "+rr+" rec"}}
   if(b.mk==="p"){var lr=(b.legs||[]).map(function(l){return betRes(Object.assign({},l,{settle:"auto"}))}),nw=lr.filter(function(x){return x.st==="won"}).length,lost=lr.some(function(x){return x.st==="lost"});
     return lost?{st:"lost",lab:nw+" of "+lr.length+" hit · lost"}:nw===lr.length?{st:"won",lab:"All "+lr.length+" hit · won"}:{st:"open",lab:"Open · "+nw+" of "+lr.length+" in"}}
   var i=betInfo(b),tds=i.td+" TD"+(i.td===1?"":"s"),st=null;
@@ -818,6 +911,9 @@ function closeOf(b){if(b.mk!=="a")return null;var k=norm(b.n);
   var o=(D.odds||{})[b.gid],rows=o&&o.bc&&o.bc[b.book];if(!rows)return null;var x=rows.filter(function(y){return norm(y[0])===k})[0];return x?{a:x[1]}:null}
 function clvOf(b){var c=closeOf(b);return c&&b.listed!=null?{v:dec(b.listed)/dec(c.a)-1,a:c.a,now:c.now}:null}
 var _rx;function recOf(gid,n){if(!_rx){_rx={};(D.rtrk||[]).forEach(function(r){_rx[r[2]+"|"+norm(r[3])]=r[8]})}var v=_rx[gid+"|"+norm(n)];return v==null?null:v}
+/* catches so far: the official count once nflverse has the game, else the live box score */
+function catches(gid,t,n){var o=recOf(gid,n);if(o!=null)return{n:o,fin:true};var L=(D.live||{})[gid],bx=L&&L.box&&L.box[t],rows=bx&&bx.c||[],k=norm(n);
+  for(var i=0;i<rows.length;i++)if(norm(rows[i][0])===k)return{n:parseInt(rows[i][2],10)||0,fin:L.st==="post"};return{n:L?(L.st==="post"?0:null):null,fin:L&&L.st==="post"}}
 function betPl(b,res){return res.st==="won"?b.units*(dec(b.odds)-1):res.st==="lost"?-b.units:res.st==="void"?0:null}
 function wkOf(gid){var p=String(gid).split("_");return{s:+p[0],w:+p[1],k:p[0]+"|"+p[1]}}
 function uTxt(x,d){return (x>=0?"+":"−")+Math.abs(x).toFixed(d==null?2:d)+"u"}
@@ -864,7 +960,7 @@ function modalHtml(r){var id=r.g+"|"+r.id,g=gm(r.g),L=liveRes(r);
   return h+detail(r)+"</div>"}
 function renderModal(){var m=$("modal"),r=S.open?rowOf(S.open):null;if(!r){if(!m.hidden){m.hidden=true;$("mbox").innerHTML="";document.body.style.overflow=""}return}
   calc(r);var sc=m.scrollTop,was=m.dataset.id===S.open;$("mbox").innerHTML=modalHtml(r);m.hidden=false;m.dataset.id=S.open;document.body.style.overflow="hidden";m.scrollTop=was?sc:0}
-var V={picks:vPicks,games:vGames,feed:vFeed,movers:vMovers,ladders:vLadders,players:vPlayers,teams:vTeams,tracker:vTracker,bets:vBets,model:vModel};
+var V={picks:vPicks,games:vGames,feed:vFeed,movers:vMovers,rec:vRec,ladders:vRec,players:vPlayers,teams:vTeams,tracker:vTracker,bets:vBets,model:vModel};
 function render(keep){
   var y=window.scrollY,ae=document.activeElement&&document.activeElement.id,pos=ae==="pq"?$("pq").selectionStart:null;
   Array.prototype.forEach.call($("tabs").children,function(b){b.setAttribute("aria-selected",b.dataset.tab===S.tab)});
@@ -877,7 +973,7 @@ function render(keep){
   if(ae==="pq"&&$("pq")){$("pq").focus();$("pq").setSelectionRange(pos,pos)}}
 function say(t){$("refreshMsg").hidden=!t;$("refreshMsg").textContent=t||""}
 function start(d){
-  var oldL=D&&D.live;_lrec=undefined;_off=undefined;_rx=undefined;D=d;if(oldL){D.live=D.live||{};Object.keys(oldL).forEach(function(k){if(!D.live[k]&&gm(k))D.live[k]=oldL[k]})}IDX={};_rec=undefined;var w=weeks();if(S.wk==null||w.indexOf(S.wk)<0)S.wk=w[0];
+  var oldL=D&&D.live;_lrec=undefined;_off=undefined;_rx=undefined;_rrow=undefined;D=d;if(oldL){D.live=D.live||{};Object.keys(oldL).forEach(function(k){if(!D.live[k]&&gm(k))D.live[k]=oldL[k]})}IDX={};_rec=undefined;var w=weeks();if(S.wk==null||w.indexOf(S.wk)<0)S.wk=w[0];
   var b=new Date(d.built);$("fresh").textContent="Games through "+d.through+" · built "+b.toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
   render(true)}
 function post(path,body,btn,label){
@@ -889,8 +985,8 @@ document.addEventListener("click",function(e){
   var t=e.target,b;
   if((b=t.closest("#tabs button"))){S.tab=b.dataset.tab;S.open=null;try{history.replaceState(null,"","#"+S.tab)}catch(x){}render();return}
   if((b=t.closest(".seg button"))){var id=b.parentNode.id,v=b.dataset.v;
-    ({"seg-wk":function(){S.wk=+v;S.game="all";S.open=null},"seg-minp":function(){S.minp=+v},"seg-sort":function(){S.sort=v;S.bsort=null},"seg-pos":function(){S.pos=v},"seg-priced":function(){S.priced=+v},"seg-ps":function(){S.pseason=v},"seg-pp":function(){S.ppos=v},"seg-tv":function(){S.tview=v},"seg-tss":function(){S.tseason=+v;S.twk=0},"seg-fss":function(){S.fss=+v;S.fwk=null},"seg-hs":function(){S.hs=+v;S.hw=null;S.open=null},"seg-bf":function(){S.bf=v},"seg-ms":function(){S.msea=v},"seg-mvr":function(){S.mvr=v},"seg-lpos":function(){S.lpos=v},"seg-lshow":function(){S.lshow=v},"seg-lbk":function(){S.lbk=v},"seg-mvs":function(){S.mvs=v}}[id]||function(){})();render(true);return}
-  if((b=t.closest("[data-nav]"))){if(b.dataset.to==="")return;var to=+b.dataset.to;if(b.dataset.nav==="hw"){S.hw=to;S.game="all";S.open=null}else if(b.dataset.nav==="fw")S.fwk=to;else if(b.dataset.nav==="mw")S.mwk=to;else S.twk=to;render(true);return}
+    ({"seg-wk":function(){S.wk=+v;S.game="all";S.open=null},"seg-minp":function(){S.minp=+v},"seg-sort":function(){S.sort=v;S.bsort=null},"seg-pos":function(){S.pos=v},"seg-priced":function(){S.priced=+v},"seg-ps":function(){S.pseason=v},"seg-pp":function(){S.ppos=v},"seg-tv":function(){S.tview=v},"seg-tss":function(){S.tseason=+v;S.twk=0},"seg-fss":function(){S.fss=+v;S.fwk=null},"seg-hs":function(){S.hs=+v;S.hw=null;S.open=null},"seg-bf":function(){S.bf=v},"seg-ms":function(){S.msea=v},"seg-mvr":function(){S.mvr=v},"seg-lpos":function(){S.lpos=v},"seg-rrows":function(){S.rrows=v},"seg-lshow":function(){S.lshow=v},"seg-lbk":function(){S.lbk=v},"seg-mvs":function(){S.mvs=v}}[id]||function(){})();render(true);return}
+  if((b=t.closest("[data-nav]"))){if(b.dataset.to==="")return;var to=+b.dataset.to;if(b.dataset.nav==="hw"){S.hw=to;S.game="all";S.open=null}else if(b.dataset.nav==="fw")S.fwk=to;else if(b.dataset.nav==="mw")S.mwk=to;else if(b.dataset.nav==="rw")S.rwk=to;else S.twk=to;render(true);return}
   if((b=t.closest("[data-jump]"))){e.preventDefault();var el=$(b.dataset.jump);if(el)el.scrollIntoView({behavior:"smooth",block:"start"});return}
   if(t.closest("[data-clear]")){var f=t.closest("form");delete MAN[f.dataset.price];ls("atd-manual",MAN);render(true);return}
   if(t.closest("#pasteBtn")){paste();return}
@@ -910,6 +1006,7 @@ document.addEventListener("click",function(e){
   if(t.closest("#betImport")){$("betFile").click();return}
   if(t.closest("form,input,textarea,select,details.how,.det"))return;
   if((b=t.closest("th[data-bs]"))){var bi=+b.dataset.bs;S.bsort=S.bsort&&S.bsort[0]===bi?[bi,-S.bsort[1]]:[bi,bi<3?1:-1];render(true);return}
+  if((b=t.closest("th[data-rs]"))){var ri=+b.dataset.rs,rc=S.rsort;S.rsort=rc&&rc[0]===ri?(rc[1]===-1?[ri,1]:null):[ri,ri<3?1:-1];render(true);return}
   if((b=t.closest("th[data-ms]"))){var mi=+b.dataset.ms,cur=S.msort;S.msort=cur&&cur[0]===mi?(cur[1]===MVC[mi][4]?[mi,-cur[1]]:null):[mi,MVC[mi][4]];render(true);return}
   if((b=t.closest("th[data-fs]"))){var fi=+b.dataset.fs,fs=S.fsort||[0,-1];S.fsort=fs[0]===fi?[fi,-fs[1]]:[fi,FC[fi][4]];render(true);return}
   if((b=t.closest("th[data-gs]"))){var gi=+b.dataset.gs;S.gsort=S.gsort&&S.gsort[0]===gi?[gi,-S.gsort[1]]:[gi,gi<1?1:-1];render(true);return}
@@ -926,7 +1023,7 @@ document.addEventListener("change",function(e){var t=e.target;
   if(t.id==="parBook"){PAR.book=t.value;savePar();renderSlip();return}
   if(t.id==="unitIn"){var uu=parseFloat(t.value);if(!isNaN(uu)&&uu>0){UNIT=uu;ls("atd-unit",UNIT)}render(true);return}
   if(t.id==="betFile"){var fl=t.files&&t.files[0];if(!fl)return;var rd=new FileReader();rd.onload=function(){try{var d=JSON.parse(rd.result),inb=Array.isArray(d)?d:d.bets||[],have={};BETS.forEach(function(x){have[x.id]=1});var n=0;inb.forEach(function(x){if(x&&x.id&&x.gid&&x.n&&!have[x.id]){BETS.push(x);n++}});if(d.unit)UNIT=d.unit;saveBets();ls("atd-unit",UNIT);say2("Imported "+n+" bet"+(n===1?"":"s"));render(true)}catch(err){say2("That file could not be read.")}};rd.readAsText(fl);return}
-  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.classList.contains("selBook")){S.book=t.value;render(true)}else if(t.id==="selTw"){S.twk=+t.value;render(true)}else if(t.id==="selFw"){S.fwk=+t.value;render(true)}else if(t.id==="selMw"){S.mwk=+t.value;render(true)}else if(t.id==="selLg"){S.lgame=t.value;render(true)}else if(t.id==="selHw"){S.hw=+t.value;S.game="all";S.open=null;render(true)}});
+  if(t.id==="selGame"){S.game=t.value;S.open=null;render(true)}else if(t.classList.contains("selBook")){S.book=t.value;render(true)}else if(t.id==="selTw"){S.twk=+t.value;render(true)}else if(t.id==="selFw"){S.fwk=+t.value;render(true)}else if(t.id==="selMw"){S.mwk=+t.value;render(true)}else if(t.id==="selLg"){S.lgame=t.value;render(true)}else if(t.id==="selRw"){S.rwk=+t.value;render(true)}else if(t.id==="selHw"){S.hw=+t.value;S.game="all";S.open=null;render(true)}});
 document.addEventListener("input",function(e){if(e.target.id==="pq"){S.pq=e.target.value;render(true)}
   if(e.target.id==="parBoost"||e.target.id==="parUnits"){var v=parseFloat(e.target.value);if(e.target.id==="parBoost")PAR.boost=isNaN(v)||v<0?0:Math.min(v,500);else PAR.units=isNaN(v)||v<=0?1:Math.round(v*100)/100;savePar();var L=parLegs(),o=$("slipOut");if(o)o.innerHTML=slipOut(L,L.length?parCalc(L):{})}});
 document.addEventListener("toggle",function(e){if(e.target.id==="how")S.howOpen=e.target.open},true);
@@ -944,16 +1041,18 @@ function paste(){
   var d=new Date();PASTE[g.gid]={at:d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-"+("0"+d.getDate()).slice(-2)+"T"+("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2),b:books};ls("atd-paste",PASTE);IDX={};S.howOpen=false;render(true)}
 var TEAMS={};[["Arizona Cardinals","ARI"],["Atlanta Falcons","ATL"],["Baltimore Ravens","BAL"],["Buffalo Bills","BUF"],["Carolina Panthers","CAR"],["Chicago Bears","CHI"],["Cincinnati Bengals","CIN"],["Cleveland Browns","CLE"],["Dallas Cowboys","DAL"],["Denver Broncos","DEN"],["Detroit Lions","DET"],["Green Bay Packers","GB"],["Houston Texans","HOU"],["Indianapolis Colts","IND"],["Jacksonville Jaguars","JAX"],["Kansas City Chiefs","KC"],["Las Vegas Raiders","LV"],["Los Angeles Chargers","LAC"],["Los Angeles Rams","LA"],["Miami Dolphins","MIA"],["Minnesota Vikings","MIN"],["New England Patriots","NE"],["New Orleans Saints","NO"],["New York Giants","NYG"],["New York Jets","NYJ"],["Philadelphia Eagles","PHI"],["Pittsburgh Steelers","PIT"],["San Francisco 49ers","SF"],["Seattle Seahawks","SEA"],["Tampa Bay Buccaneers","TB"],["Tennessee Titans","TEN"],["Washington Commanders","WAS"]].forEach(function(x){TEAMS[norm(x[0])]=x[1]});
 /* every book's price for a player, shown when the pointer rests on a board price */
-var MKN={a:"Anytime TD",f:"First TD",t:"2+ TDs",p:"Parlay",r:"Receptions"};
-function mkLab(b){return b.mk==="r"?b.k+"+ receptions":MKN[b.mk]}
+var MKN={a:"Anytime TD",f:"First TD",t:"2+ TDs",p:"Parlay",r:"Receptions",ro:"Receptions",ru:"Receptions"};
+function mkLab(b){return b.mk==="r"?b.k+"+ receptions":b.mk==="ro"?"Over "+b.k+" receptions":b.mk==="ru"?"Under "+b.k+" receptions":MKN[b.mk]}
 function rowOf(id){return D.picks.filter(function(x){return x.g+"|"+x.id===id})[0]}
+function ouBy(r,kind){var x=recRow(r.g,r.id);if(!x)return{};var s=kind.charAt(0)==="O"?x.ov:x.un;return s&&String(x.line)===kind.slice(1)?s.by:{}}
+function kindLab(kind){var c=kind.charAt(0);return c==="r"?kind.slice(1)+"+ receptions":c==="O"?"Over "+kind.slice(1)+" receptions":c==="U"?"Under "+kind.slice(1)+" receptions":MKN[kind]}
 function popHtml(key,pin){var parts=key.split("|"),kind=parts.pop(),id=parts.join("|"),r=rowOf(id);if(!r)return"";
-  var od=oddsFor(r.g),rk=kind.charAt(0)==="r"?+kind.slice(1):0,by=rk?(((od.byr[norm(r.n)]||{})[rk])||{}):(kind==="f"?od.byf:kind==="t"?od.byt:od.by)[norm(r.n)]||{},bks=Object.keys(by).sort(function(a,b){return dec(by[b])-dec(by[a])});
-  var shown=rk?null:kind==="f"?r.b_fp:kind==="t"?r._tp:r.b_pr,hasMan=kind==="a"&&MAN[id]!=null;if(!bks.length&&!hasMan)return"";
+  var od=oddsFor(r.g),rk=kind.charAt(0)==="r"?+kind.slice(1):0,ouk=/^[OU]/.test(kind),by=ouk?ouBy(r,kind):rk?(((od.byr[norm(r.n)]||{})[rk])||{}):(kind==="f"?od.byf:kind==="t"?od.byt:od.by)[norm(r.n)]||{},bks=Object.keys(by).sort(function(a,b){return dec(by[b])-dec(by[a])});
+  var shown=rk||ouk?null:kind==="f"?r.b_fp:kind==="t"?r._tp:r.b_pr,hasMan=kind==="a"&&MAN[id]!=null;if(!bks.length&&!hasMan)return"";
   var add=function(bk){return pin?'<button class="addb" type="button" data-add="'+esc(id+"|"+kind+"|"+bk)+'">+ add</button>':"<span></span>"};
   var man=hasMan?'<div class="pr"><span>Your price <i>· shown</i></span><b>'+fmtA(MAN[id])+"</b>"+add("Your price")+"</div>":"";
-  return "<h4>"+esc(r.n)+(kind==="a"?"":" · "+(rk?rk+"+ receptions":MKN[kind]))+"<span>"+bks.length+" book"+(bks.length===1?"":"s")+"</span></h4>"+man+bks.map(function(b,i){return '<div class="pr'+(i===0?" best":"")+'"><span>'+esc(b)+(!hasMan&&shown&&shown.bk===b?" <i>· shown</i>":"")+"</span><b>"+fmtA(by[b])+"</b>"+add(b)+"</div>"}).join("")+
-    (pin&&!rk?'<div class="paddrow"><button class="addb" type="button" data-addp="'+esc(key)+'">+ Add to parlay</button><span>'+esc(PAR.book)+" "+(by[PAR.book]!=null?fmtA(by[PAR.book]):"· no price")+"</span></div>":"")+
+  return "<h4>"+esc(r.n)+(kind==="a"?"":" · "+kindLab(kind))+"<span>"+bks.length+" book"+(bks.length===1?"":"s")+"</span></h4>"+man+bks.map(function(b,i){return '<div class="pr'+(i===0?" best":"")+'"><span>'+esc(b)+(!hasMan&&shown&&shown.bk===b?" <i>· shown</i>":"")+"</span><b>"+fmtA(by[b])+"</b>"+add(b)+"</div>"}).join("")+
+    (pin&&!rk&&!ouk?'<div class="paddrow"><button class="addb" type="button" data-addp="'+esc(key)+'">+ Add to parlay</button><span>'+esc(PAR.book)+" "+(by[PAR.book]!=null?fmtA(by[PAR.book]):"· no price")+"</span></div>":"")+
     "<p>"+(pin?"Pick the book you bet it at. You can change the odds afterwards in My bets.":"Click the price to add it to My bets.")+"</p>"}
 function placePop(pop,x0,y0){var w=pop.offsetWidth,hh=pop.offsetHeight,x=x0+16,y=y0+16;if(x+w>window.innerWidth-8)x=x0-w-16;if(y+hh>window.innerHeight-8)y=Math.max(8,y0-hh-12);pop.style.left=Math.max(8,x)+"px";pop.style.top=y+"px"}
 function pinPop(el,e){var pop=$("pop"),h=popHtml(el.dataset.px,true);if(!h)return;pop.innerHTML=h;pop.dataset.k="pin:"+el.dataset.px;pop.classList.add("pin");pop.hidden=false;placePop(pop,e.clientX,e.clientY)}

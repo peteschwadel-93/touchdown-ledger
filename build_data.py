@@ -23,7 +23,7 @@ request per pull; listing the games is free. Prices are kept in odds.json so pas
 Data: github.com/nflverse (play-by-play, snap counts, weekly rosters, injury reports) and nfldata games.csv
 (schedule, closing spread and total). Everything is cached in ./nfl_cache.
 """
-import argparse, json, math, os, re, shutil, socket, subprocess, sys, threading, time, unicodedata, urllib.error, urllib.request, webbrowser
+import argparse, itertools, json, math, os, re, shutil, socket, subprocess, sys, threading, time, unicodedata, urllib.error, urllib.request, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -538,8 +538,9 @@ def make(season=None, old=None):
         u["rate"] = -np.log(1 - u.p)
         u["pf"] = u.rate / u.groupby("game_id").rate.transform("sum") * fcov
         u["rm"] = np.where(u.pos.isin(REC_POS), np.exp(rec_design(u, lgt) @ wr), np.nan)
-        logs = {}
+        logs, rlog = {}, {}
         for pid, x in d[d.pid.isin(set(u.pid))].groupby("pid", sort=False):
+            rlog[pid] = [int(v) for v in x.rec.tail(10)]
             logs[pid] = [[f"{int(r.season) % 100}w{int(r.week)}", r.opp, r3(r.snp, 2), int(r.car), int(r.tg), int(r.i5), int(r.ez),
                           int(r.rzc + r.rzt), r3(r.rx + r.tx, 2), int(r.tds)] for r in x.tail(6).itertuples()]
         for r in u.itertuples():
@@ -549,7 +550,9 @@ def make(season=None, old=None):
                           "sn": r3(r.snw, 2), "dr": r3(r.dr, 2), "dt": r3(r.dt, 2), "ng": r3(r.n, 1), "inj": r.inj, "back": r.back, "eid": r.eid,
                           "x": r3((r.p_rx + r.p_tx) / n1, 2), "td": r3(r.p_tds / n1, 2), "i5": r3(r.p_i5 / n1, 2), "ez": r3(r.p_ez / n1, 2),
                           "rz": r3((r.p_rzc + r.p_rzt) / n1, 2), "log": logs.get(r.pid, []),
-                          **({"rm": r3(r.rm, 2), "rg": r3(r.p_rec / n1, 1), "tgg": r3(r.p_tg / n1, 1)} if r.rm == r.rm else {})})
+                          **({"rm": r3(r.rm, 2), "rg": r3(r.p_rec / n1, 1), "tgg": r3(r.p_tg / n1, 1), "rl": rlog.get(r.pid, []),
+                              "ctr": r3(r.p_rec / r.p_tg, 2) if r.p_tg > 0 else None, "tt": r3((r.o_ttg + 4 * lgt) / (r.o_n + 4), 1),
+                              "of": r3((r.d_ttg + 4 * lgt) / (r.d_n + 4) / lgt, 2)} if r.rm == r.rm else {})})
     # ---- research tables
     def usage(x):
         gp = x.groupby("pid").agg(n=("name", "last"), t=("posteam", "last"), pos=("pos", "last"), gp=("game_id", "nunique"), snp=("snp", "mean"),
@@ -603,6 +606,13 @@ def make(season=None, old=None):
     for row_ in trk:                      # the team's expected touchdowns, for the 2+ TD chance
         row_ += [None] * (15 - len(row_))
         row_.append(tmap.get((row_[2], row_[4])))
+    try:
+        out["recb"] = rec_board(sched, out["picks"], full, (model.get("rec") or {}).get("phi", 1.4), season, rtrk)
+        with open(ODDS, "w", encoding="utf-8") as f:       # the board's picks are kept per game until kickoff, then frozen
+            json.dump(full, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+    except Exception as e:
+        print(f"receptions board skipped: {e}", file=sys.stderr)
+        out["recb"] = {}
     out["live"] = live_scores(sched)
     out["notes"] = espn_notes({norm_name(x["n"]) for x in out["picks"]})
     out["odds"] = {}
@@ -752,6 +762,234 @@ def movers(out, path=MOVERS, keep_days=8):
             json.dump({"at": out["built"], "snap": snap, "games": games, "log": log}, f, separators=(",", ":"), ensure_ascii=False)
     return log
 
+
+# ---------- the receptions board: picks, ladder watch and parlay ideas ----------
+# Starting guesses, like the other rules before a record exists. Chances are the model's averaged half and half with the market's own
+# (each book's over and under on the main line with the margin removed); ladder rungs use the expected catches averaged the same way.
+RB = {"m": 0.02, "books": 3, "gap": 0.12, "lp": 0.20, "llo": 0.02, "lhi": 0.20, "pm": 0.45, "pr": 0.30, "plo": 0.03, "phi_": 0.25}
+
+
+def nb_ge(mu, k, phi):
+    """Chance of k or more catches when catches average mu and vary phi times as much as a Poisson count."""
+    if mu is None or mu <= 0:
+        return None
+    if k <= 0:
+        return 1.0
+    r = mu / (phi - 1)
+    q = r / (r + mu)
+    pk = q ** r
+    c = pk
+    for i in range(1, k):
+        pk = pk * (i - 1 + r) / i * (1 - q)
+        c += pk
+    return min(max(1 - c, 0.0), 1.0)
+
+
+def mu_for(prob, k, phi):
+    lo, hi = 0.05, 20.0
+    for _ in range(40):
+        m = (lo + hi) / 2
+        if nb_ge(m, k, phi) < prob:
+            lo = m
+        else:
+            hi = m
+    return (lo + hi) / 2
+
+
+def rec_board(sched, picks, store, phi, season, rtrk=None):
+    """Picks, ladder watch and parlay ideas for every week: this week's and next week's live (each game's picks frozen at its kickoff),
+    and this season's earlier weeks as they would have looked, rebuilt from the stored prices an hour before kickoff and the catches the
+    model expected (a fit that never saw this season), unless picks were recorded live for that week."""
+    now = datetime.now(ET)
+    games = {g["gid"]: g for g in sched}
+    started = {gid: datetime.fromisoformat(g["ts"]) <= now for gid, g in games.items()}
+    actual = {}
+    past = {}
+    items = list(picks)
+    for x in rtrk or []:
+        actual[(x[2], norm_name(x[3]))] = x[8]
+        rec = store.get(x[2]) or {}
+        if x[2] not in games and (rec.get("ro") or rec.get("r")):
+            past.setdefault(x[1], set()).add(x[2])
+            items.append({"g": x[2], "id": "x:" + norm_name(x[3]), "n": x[3], "t": x[4], "o": x[5], "pos": x[6], "rm": x[7], "_past": 1})
+    pastmode = {}
+    for wk, gids in past.items():
+        live = any((store.get(g_) or {}).get("rxp") is not None for g_ in gids)
+        pastmode[wk] = "frozen" if live else "retro"
+        for g_ in gids:
+            started[g_] = live
+    rows, legs = [], []
+    for r in items:
+        mu = r.get("rm")
+        if mu is None or mu < 0.8 or (r["g"] not in games and not r.get("_past")):
+            continue
+        gid, k = r["g"], norm_name(r["n"])
+        rec = store.get(gid) or {}
+        ou = {}
+        for bk, lst in (rec.get("ro") or {}).items():
+            for who, pt, ov, un in lst:
+                if norm_name(who) == k:
+                    ou.setdefault(bk, []).append((pt, ov, un))
+        row = {"g": gid, "id": r["id"], "n": r["n"], "t": r["t"], "o": r["o"], "pos": r["pos"], "mu": mu, "line": None}
+        kk = max(2, int(round(mu)))
+        mu_b = mu
+        if ou:
+            pts = [x[0] for v in ou.values() for x in v]
+            line = max(set(pts), key=lambda x: (pts.count(x), -abs(x - mu)))
+            same = {bk: next(x for x in v if x[0] == line) for bk, v in ou.items() if any(x[0] == line for x in v)}
+            fair = [(1 / american(ov)) / (1 / american(ov) + 1 / american(un)) for _, ov, un in same.values() if ov and un]
+            mk = sum(fair) / len(fair) if fair else None
+            kk = int(math.floor(line)) + 1
+            pm = nb_ge(mu, kk, phi)
+            pb = (pm + mk) / 2 if mk is not None else pm
+            if mk is not None:
+                mu_b = (mu + mu_for(mk, kk, phi)) / 2
+            row.update({"line": line, "books": len(same), "mk": r3(mk), "pm": r3(pm), "pb": r3(pb), "check": int(mk is not None and abs(pm - mk) > RB["gap"])})
+            for side, idx, c in (("ov", 1, pb), ("un", 2, 1 - pb)):
+                pr = [(x[idx], bk) for bk, x in same.items() if x[idx]]
+                if not pr:
+                    continue
+                a, bk = max(pr, key=lambda z: american(z[0]))
+                dd = american(a)
+                row[side] = {"a": a, "bk": bk, "n": len(pr), "p": r3(c), "e": r3(c * dd - 1), "m": r3(c - 1 / dd),
+                             "by": {b_: x[idx] for b_, x in same.items() if x[idx]}}
+        row["mub"] = r3(mu_b, 2)
+        lad = {}
+        for bk, lst in (rec.get("r") or {}).items():
+            for who, rung, price in lst:
+                if norm_name(who) == k:
+                    lad.setdefault(rung, {})[bk] = price
+        row["lad"] = {}
+        for rung, by in sorted(lad.items()):
+            a, bk = max(((v, b_) for b_, v in by.items()), key=lambda z: american(z[0]))
+            c = nb_ge(mu_b, rung, phi)
+            if c < 0.03 or c > 0.97:
+                continue
+            row["lad"][str(rung)] = {"a": a, "bk": bk, "n": len(by), "p": r3(c), "e": r3(c * american(a) - 1), "by": by}
+        row["kk"] = kk
+        if r.get("_past"):
+            row["act"] = actual.get((gid, k))
+            row["wk"] = int(gid.split("_")[1])
+        rows.append(row)
+    # ---- weekly selections, frozen game by game at kickoff
+    out = {"rows": rows, "picks": [], "lad": [], "parl": [], "rule": RB, "phi": r3(phi)}
+    weeks = sorted({g["wk"] for g in sched})
+    byg = {}
+    for x in rows:
+        byg.setdefault(x["g"], []).append(x)
+    allw = [(wk, [g for g in sched if g["wk"] == wk], "live") for wk in weeks] + [(wk, [{"gid": g_} for g_ in sorted(gids)], pastmode[wk]) for wk, gids in sorted(past.items()) if wk not in weeks]
+    out["weeks"] = {str(wk): mode for wk, _, mode in allw}
+    for wk, gw, mode in allw:
+        n_pick = min(5, max(1, math.ceil(len(gw) / 3)))
+        # picks: main-line overs and unders
+        frozen = [p_ for g in gw if started[g["gid"]] for p_ in ((store.get(g["gid"]) or {}).get("rxp") or [])]
+        cands = []
+        for g in gw:
+            if started[g["gid"]]:
+                continue
+            for x in byg.get(g["gid"], []):
+                if not x.get("line") or x.get("check") or x.get("books", 0) < RB["books"]:
+                    continue
+                for side in ("ov", "un"):
+                    s = x.get(side)
+                    if s and s["m"] >= RB["m"]:
+                        dd = american(s["a"])
+                        kel = max(s["e"], 0) / (dd - 1)
+                        cands.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "o": x["o"], "pos": x["pos"], "side": side[0], "line": x["line"],
+                                      "a": s["a"], "bk": s["bk"], "p": s["p"], "e": s["e"], "m": s["m"], "pm": x["pm"], "mk": x["mk"], "mu": x["mu"],
+                                      "u": min(1.5, max(0.25, round(kel * 25 * 4) / 4))})
+        cands.sort(key=lambda c: -c["m"])
+        teams = {p_["t"] for p_ in frozen}
+        chosen = []
+        for c in cands:
+            if len(frozen) + len(chosen) >= n_pick:
+                break
+            if c["t"] in teams or any(o["id"] == c["id"] for o in chosen):
+                continue
+            teams.add(c["t"])
+            chosen.append(c)
+        for g in gw:
+            if not started[g["gid"]] and mode == "live":
+                store.setdefault(g["gid"], {})["rxp"] = [dict(c, wk=wk) for c in chosen if c["g"] == g["gid"]]
+        rt = {"rt": 1} if mode == "retro" else {}
+        out["picks"] += [dict(p_, wk=wk, lk=1) for p_ in frozen] + [dict(c, wk=wk, **rt) for c in chosen]
+        # ladder watch
+        frozen_l = [p_ for g in gw if started[g["gid"]] for p_ in ((store.get(g["gid"]) or {}).get("rxl") or [])]
+        lc = []
+        for g in gw:
+            if started[g["gid"]]:
+                continue
+            for x in byg.get(g["gid"], []):
+                if x.get("check"):
+                    continue
+                kk = x["kk"]
+                good = [(int(k_), v) for k_, v in x["lad"].items() if max(2, kk - 1) <= int(k_) <= kk + 3 and v["p"] >= RB["lp"] and RB["llo"] <= v["e"] <= RB["lhi"]]
+                if len(good) < 2 or max(k_ for k_, _ in good) < kk:
+                    continue
+                wts = [v["p"] * v["e"] for _, v in good]
+                tot = sum(wts)
+                lc.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "o": x["o"], "pos": x["pos"], "line": x["line"], "mu": x["mu"], "mub": x["mub"],
+                           "te": r3(sum(v["e"] for _, v in good)), "rungs": [[k_, v["a"], v["bk"], v["p"], v["e"], r3(w_ / tot, 2) if tot > 0 else r3(1 / len(good), 2)] for (k_, v), w_ in zip(good, wts)]})
+        lc.sort(key=lambda c: -c["te"])
+        n_l = min(5, max(1, math.ceil(len(gw) / 3)))
+        chosen_l = [c for c in lc if c["id"] not in {p_["id"] for p_ in frozen_l}][:max(0, n_l - len(frozen_l))]
+        for g in gw:
+            if not started[g["gid"]] and mode == "live":
+                store.setdefault(g["gid"], {})["rxl"] = [dict(c, wk=wk) for c in chosen_l if c["g"] == g["gid"]]
+        out["lad"] += [dict(p_, wk=wk, lk=1) for p_ in frozen_l] + [dict(c, wk=wk, **rt) for c in chosen_l]
+        # parlay ideas: legs that each beat their price at one book, one per player, different games
+        key = f"{season}|{wk}"
+        pz = store.setdefault("_rxparl", {})
+        kept = [i for i in (pz.get(key) or []) if any(started.get(l_["g"]) for l_ in i["legs"])]
+        pool = []
+        for g in gw:
+            if started[g["gid"]]:
+                continue
+            for x in byg.get(g["gid"], []):
+                if x.get("check") or not x.get("line"):
+                    continue
+                for side in ("ov", "un"):
+                    s = x.get(side)
+                    if s and s["p"] >= RB["pm"]:
+                        for bk, a in s["by"].items():
+                            e = s["p"] * american(a) - 1
+                            if RB["plo"] <= e <= RB["phi_"]:
+                                pool.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "lab": ("Over " if side == "ov" else "Under ") + f"{x['line']:g}", "bk": bk, "a": a, "p": s["p"], "e": r3(e)})
+                for k_, v in x["lad"].items():
+                    if x["kk"] + 1 <= int(k_) <= x["kk"] + 2 and v["p"] >= RB["pr"]:
+                        for bk, a in v["by"].items():
+                            e = v["p"] * american(a) - 1
+                            if RB["plo"] <= e <= RB["phi_"]:
+                                pool.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "lab": f"{k_}+ catches", "bk": bk, "a": a, "p": v["p"], "e": r3(e)})
+        ideas = []
+        for size in (2, 3):
+            best = None
+            for bk in {l_["bk"] for l_ in pool}:
+                L = sorted([l_ for l_ in pool if l_["bk"] == bk], key=lambda z: -z["e"])[:12]
+                for combo in itertools.combinations(L, size):
+                    if len({c["g"] for c in combo}) < size or len({c["id"] for c in combo}) < size:
+                        continue
+                    q = math.prod(c["p"] for c in combo)
+                    D_ = math.prod(american(c["a"]) for c in combo)
+                    ev = q * D_ - 1
+                    if best is None or ev > best["ev"]:
+                        best = {"bk": bk, "legs": list(combo), "q": r3(q, 4), "d": r3(D_, 3), "ev": r3(ev, 3)}
+            if best:
+                kel = max(best["ev"], 0) / (best["d"] - 1)
+                best["u"] = round(min(0.5, max(0.1, kel * 100 / 8)) * 20) / 20
+                ideas.append(best)
+        new = [i for i in ideas if len(i["legs"]) not in {len(k_["legs"]) for k_ in kept}]
+        if mode == "live":
+            pz[key] = [dict(i, wk=wk) for i in kept + new]
+        out["parl"] += [dict(i, wk=wk, lk=1 if i in kept else 0, **rt) for i in kept + new]
+    for x in rows:                      # past weeks only need the best prices on the page
+        if "act" in x:
+            for s in ("ov", "un"):
+                if x.get(s):
+                    x[s].pop("by", None)
+            for v in x["lad"].values():
+                v.pop("by", None)
+    return out
 
 # ---------- kickoff locks ----------
 def american(a):
@@ -1029,6 +1267,25 @@ def parse_ladder(doc, market="player_receptions_alternate"):
     return out
 
 
+def parse_ou(doc, market="player_receptions"):
+    """{book: [[player, line, over price, under price], ...]} for a main over/under player market (a side can be None)."""
+    out = {}
+    for bk in doc.get("bookmakers") or []:
+        rows = {}
+        for mk in bk.get("markets") or []:
+            if mk.get("key") != market:
+                continue
+            for o in mk.get("outcomes") or []:
+                who, price, pt, side = o.get("description"), o.get("price"), o.get("point"), str(o.get("name"))
+                if not who or not isinstance(price, (int, float)) or not isinstance(pt, (int, float)) or side not in ("Over", "Under"):
+                    continue
+                x = rows.setdefault((who, float(pt)), [None, None])
+                x[0 if side == "Over" else 1] = int(price)
+        if rows:
+            out[bk.get("title") or bk.get("key")] = [[k[0], k[1], v[0], v[1]] for k, v in sorted(rows.items())]
+    return out
+
+
 TWO = {"p": 0.20, "lo": -0.10, "hi": 0.50}      # the 2+ TD picks: chance of two 20%+, edge -10% to +50%, best four by edge (the page uses the same numbers)
 
 
@@ -1085,9 +1342,9 @@ def remember_odds(sched, old, force=False):
                 eid = ids.get((u["a"], u["h"]))
                 if not eid:
                     continue
-                raw, hd = get(f"{ODDS_API}/events/{eid}/odds?apiKey={key}&regions=us&markets=player_anytime_td,player_1st_td,player_tds_over,player_receptions_alternate&oddsFormat=american", 60, headers=True)
+                raw, hd = get(f"{ODDS_API}/events/{eid}/odds?apiKey={key}&regions=us&markets=player_anytime_td,player_1st_td,player_tds_over,player_receptions,player_receptions_alternate&oddsFormat=american", 60, headers=True)
                 doc = json.loads(raw)
-                books, first, two, lad = parse_td(doc), parse_td(doc, "player_1st_td"), parse_two(doc), parse_ladder(doc)
+                books, first, two, lad, ou = parse_td(doc), parse_td(doc, "player_1st_td"), parse_two(doc), parse_ladder(doc), parse_ou(doc)
                 left = hd.get("x-requests-remaining")
                 if left is not None:
                     meta["left"] = int(float(left))
@@ -1108,6 +1365,8 @@ def remember_odds(sched, old, force=False):
                         rec["r"] = lad
                     else:
                         rec["rtries"] = rec.get("rtries", 0) + 1
+                    if ou:
+                        rec["ro"] = ou
                 else:
                     rec["tries"] = rec.get("tries", 0) + 1      # market not posted yet; try again next run
                 store[u["gid"]] = rec
@@ -1153,7 +1412,7 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
     for r in todo:
         ko = datetime.strptime(f"{r.gameday} {r.gametime}", "%Y-%m-%d %H:%M").replace(tzinfo=ET)
         slots.setdefault(ko - timedelta(minutes=lead), []).append(r)
-    cost = 10 * len(todo) + len(slots)
+    cost = (20 if lad else 10) * len(todo) + len(slots)
     print(f"{len(g)} finished games ({season - back}-{season}), {len(g) - len(todo)} already have prices. To fetch: {len(todo)} games in {len(slots)} kickoff slots.")
     print(f"Estimated cost: about {cost} requests (10 per game + 1 per slot).")
     if not todo:
@@ -1185,7 +1444,7 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
                 if two:
                     mk = "player_tds_over" if old_rec.get("b") else "player_anytime_td,player_tds_over"
                 if lad:
-                    mk = "player_receptions_alternate"
+                    mk = "player_receptions,player_receptions_alternate"
                 raw, hd = get(f"{ODDS_API.replace('/v4/', '/v4/historical/')}/events/{eid}/odds?apiKey={key}&regions=us&markets={mk}"
                               f"&oddsFormat=american&date={stamp}", 60, headers=True)
             except urllib.error.HTTPError as e:
@@ -1197,9 +1456,11 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
             doc = json.loads(raw)
             books = parse_td(doc.get("data") or {})
             if lad:
-                ladder = parse_ladder(doc.get("data") or {})
+                ladder, ou = parse_ladder(doc.get("data") or {}), parse_ou(doc.get("data") or {})
                 rec = dict(old_rec)
                 rec.update({"r": ladder, "rat": doc.get("timestamp") or stamp} if ladder else {"rtry": 1})
+                if ou:
+                    rec["ro"] = ou
                 store[r.game_id] = rec
                 got += 1 if ladder else 0
                 with open(ODDS, "w", encoding="utf-8") as f:
