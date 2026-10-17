@@ -45,7 +45,7 @@ FIT_HL = 1.0                     # when fitting the chance curve, a player-game 
 K, KT, KD = 1.5, 6.0, 30.0       # shrinkage, in games, for player shares, team run/pass mix and the defence nudge
 PBP_COLS = ["game_id", "season", "week", "posteam", "defteam", "play_type", "yardline_100", "air_yards", "two_point_attempt",
             "sack", "touchdown", "td_player_id", "rusher_player_id", "receiver_player_id", "passer_player_id", "pass_touchdown",
-            "play_id", "qtr", "fixed_drive", "time", "time_of_day", "td_team", "td_player_name", "rush_touchdown"]
+            "play_id", "qtr", "fixed_drive", "time", "time_of_day", "td_team", "td_player_name", "rush_touchdown", "complete_pass"]
 HTML = "touchdown_ledger.html"
 TAG = "atd-data"
 ODDS = "odds.json"
@@ -166,7 +166,7 @@ def player_games(pbp, sn, ros, games, pl):
         car=("x", "size"), rx=("x", "sum"), rtd=("td", "sum"), i5=("yardline_100", lambda s: int((s <= 5).sum())),
         rzc=("yardline_100", lambda s: int((s <= 20).sum()))).reset_index().rename(columns={"rusher_player_id": "pid"})
     t = tgt.groupby(["game_id", "posteam", "receiver_player_id"]).agg(
-        tg=("x", "size"), tx=("x", "sum"), ctd=("td", "sum"), ez=("ez", "sum"),
+        tg=("x", "size"), tx=("x", "sum"), ctd=("td", "sum"), ez=("ez", "sum"), rec=("complete_pass", "sum"),
         rzt=("yardline_100", lambda s: int((s <= 20).sum()))).reset_index().rename(columns={"receiver_player_id": "pid"})
     pg = r.merge(t, on=["game_id", "posteam", "pid"], how="outer").fillna(0)
     # the bet settles on any touchdown the player scores himself (rushing, receiving, return); throwing one does not count
@@ -197,7 +197,7 @@ def player_games(pbp, sn, ros, games, pl):
     sp, tot = d.game_id.map(g.spread_line), d.game_id.map(g.total_line)
     d["imp"] = np.where(home, tot / 2 + sp / 2, tot / 2 - sp / 2)      # spread_line > 0 means the home team is favoured
     d["opp"] = np.where(home, d.game_id.map(g.away_team), d.game_id.map(g.home_team))
-    tm = d.groupby(["game_id", "posteam"]).agg(trx=("rx", "sum"), ttx=("tx", "sum"), trtd=("rtd", "sum"), tctd=("ctd", "sum")).reset_index()
+    tm = d.groupby(["game_id", "posteam"]).agg(trx=("rx", "sum"), ttx=("tx", "sum"), trtd=("rtd", "sum"), tctd=("ctd", "sum"), ttg=("tg", "sum")).reset_index()
     d = d.merge(tm, on=["game_id", "posteam"]).sort_values(["gameday", "game_id"]).reset_index(drop=True)
     return d, RT, TT
 
@@ -224,8 +224,8 @@ def td_feed(pbp, d, pl, seasons):
 
 
 # ---------- features ----------
-PCOLS = ["rx", "tx", "trx", "ttx", "tds", "car", "tg", "i5", "ez", "snp", "rzc", "rzt", "y"]
-TCOLS = ["trx", "ttx", "trtd", "tctd"]
+PCOLS = ["rx", "tx", "trx", "ttx", "tds", "car", "tg", "i5", "ez", "snp", "rzc", "rzt", "y", "rec"]
+TCOLS = ["trx", "ttx", "trtd", "tctd", "ttg"]
 
 
 def decayed(df, key, cols, hl, final=False):
@@ -249,7 +249,7 @@ def decayed(df, key, cols, hl, final=False):
 
 def team_games(d):
     return d.groupby(["game_id", "posteam", "opp", "season", "gameday"], sort=False).agg(
-        trx=("trx", "first"), ttx=("ttx", "first"), trtd=("trtd", "first"), tctd=("tctd", "first"),
+        trx=("trx", "first"), ttx=("ttx", "first"), trtd=("trtd", "first"), tctd=("tctd", "first"), ttg=("ttg", "first"),
         imp=("imp", "first")).reset_index().sort_values(["gameday", "game_id"]).reset_index(drop=True)
 
 
@@ -325,6 +325,38 @@ def fit_logit(X, y, iters=60, l2=1e-3, wt=None):
 
 def predict(w, X):
     return 1 / (1 + np.exp(-(np.c_[np.ones(len(X)), X] @ w)))
+
+
+# ---------- receptions (for the alt-receptions ladders) ----------
+REC_POS = ("WR", "TE", "RB")
+
+
+def rec_design(s, lgt):
+    """Inputs for expected catches: recent catches and targets a game, snap share, the team's implied total, position, the team's
+    recent targets a game and how many targets the opponent has been facing (a pass funnel). Tested on 2025: matchups by man/zone
+    coverage and the spread added almost nothing, so they are left out."""
+    n1 = np.clip(s.n.to_numpy(float), 1, None)
+    return np.c_[np.ones(len(s)), np.log(s.p_rec.to_numpy() / n1 + 0.3), np.log(s.p_tg.to_numpy() / n1 + 0.3), np.log(s.imp.fillna(22).to_numpy() / 22),
+                 (s.pos == "TE").to_numpy(float), (s.pos == "RB").to_numpy(float), np.log(np.clip(s.snw.to_numpy(float), 0.05, 1)),
+                 np.log((s.o_ttg.to_numpy() + 4 * lgt) / (s.o_n.to_numpy() + 4) / lgt), np.log((s.d_ttg.to_numpy() + 4 * lgt) / (s.d_n.to_numpy() + 4) / lgt)]
+
+
+def fit_rec(s, season, lgt):
+    """Poisson regression for expected catches (recent seasons weigh more), and the spread around it: catches vary about 1.4 times
+    as much as a Poisson count would, so ladder chances use a negative binomial with that variance (it matched every rung of the
+    2025-26 back-check to within a point)."""
+    z = s[s.pos.isin(REC_POS) & (s.n >= 2) & (s.p_tg / s.n.clip(lower=1) >= 1.5)]
+    X, y, wt = rec_design(z, lgt), z.rec.to_numpy(float), recency(z, season)
+    w = np.zeros(X.shape[1]); w[0] = np.log(max(y.mean(), 0.5))
+    for _ in range(60):
+        mu = np.exp(X @ w)
+        step = np.linalg.solve((X * (wt * mu)[:, None]).T @ X + 1e-6 * np.eye(len(w)), X.T @ (wt * (y - mu)))
+        w += step
+        if np.abs(step).max() < 1e-8:
+            break
+    mu = np.exp(X @ w)
+    phi = float(np.sum(wt * (y - mu) ** 2 / mu) / np.sum(wt))
+    return w, max(phi, 1.05)
 
 
 def scores(y, p):
@@ -411,6 +443,17 @@ def make(season=None, old=None):
         trk += [row(r) for r in cur[cur.p >= 0.08].itertuples()]
     w = fit_logit(design(s), s.y.to_numpy(float), wt=recency(s, season))
     model["w"] = [r3(x, 4) for x in w]
+    # receptions: expected catches for the ladders, fitted on everything; this season graded with a fit that never saw it
+    lgt = float(d.groupby(["game_id", "posteam"]).ttg.first().mean())
+    wr, phi = fit_rec(s, season, lgt)
+    model["rec"] = {"w": [r3(x, 4) for x in wr], "phi": r3(phi), "lgt": r3(lgt, 2)}
+    rtrk = []
+    if (s.season < season).sum() > 2000:
+        wr0, _ = fit_rec(s[s.season < season], season, lgt)
+        z = s[(s.season == season) & s.pos.isin(REC_POS)]
+        if len(z):
+            z = z.assign(rm=np.exp(rec_design(z, lgt) @ wr0))
+            rtrk = [[int(r.season), int(r.week), r.game_id, r.name, r.posteam, r.opp, r.pos, r3(r.rm, 2), int(r.rec)] for r in z[z.rm >= 1].itertuples()]
     model["n"] = int(len(s))
     # first-TD share: a player's slice of everyone's scoring rate in the game, scaled to how often the first TD goes to a listed player
     s = s.assign(p=predict(w, design(s)))
@@ -473,7 +516,7 @@ def make(season=None, old=None):
                     continue          # has not played lately and is not on this week's report: treat as not in the plan
                 acc, last = P_end[r.gsis_id]
                 acc = acc * (SM if last != season else 1)
-                o, dd = O_end.get(team, (np.zeros(5), season))[0], D_end.get(opp, (np.zeros(5), season))[0]
+                o, dd = O_end.get(team, (np.zeros(len(TCOLS) + 1), season))[0], D_end.get(opp, (np.zeros(len(TCOLS) + 1), season))[0]
                 row = {"game_id": g.game_id, "posteam": team, "opp": opp, "pid": r.gsis_id, "name": r.full_name, "pos": r.position,
                        "imp": imp, "inj": st, "back": int(back), "n": acc[-1], "week": int(g.week),
                        "eid": str(int(float(r.espn_id))) if pd.notna(r.espn_id) and str(r.espn_id).strip() else ""}
@@ -494,6 +537,7 @@ def make(season=None, old=None):
         u["p"] = predict(w, design(u))
         u["rate"] = -np.log(1 - u.p)
         u["pf"] = u.rate / u.groupby("game_id").rate.transform("sum") * fcov
+        u["rm"] = np.where(u.pos.isin(REC_POS), np.exp(rec_design(u, lgt) @ wr), np.nan)
         logs = {}
         for pid, x in d[d.pid.isin(set(u.pid))].groupby("pid", sort=False):
             logs[pid] = [[f"{int(r.season) % 100}w{int(r.week)}", r.opp, r3(r.snp, 2), int(r.car), int(r.tg), int(r.i5), int(r.ez),
@@ -504,7 +548,8 @@ def make(season=None, old=None):
                           "T": r3(r.T, 2), "sp": r3(r.split), "rs": r3(r.rshn), "ts": r3(r.tshn), "lr": r3(r.lam_r), "lt": r3(r.lam_t),
                           "sn": r3(r.snw, 2), "dr": r3(r.dr, 2), "dt": r3(r.dt, 2), "ng": r3(r.n, 1), "inj": r.inj, "back": r.back, "eid": r.eid,
                           "x": r3((r.p_rx + r.p_tx) / n1, 2), "td": r3(r.p_tds / n1, 2), "i5": r3(r.p_i5 / n1, 2), "ez": r3(r.p_ez / n1, 2),
-                          "rz": r3((r.p_rzc + r.p_rzt) / n1, 2), "log": logs.get(r.pid, [])})
+                          "rz": r3((r.p_rzc + r.p_rzt) / n1, 2), "log": logs.get(r.pid, []),
+                          **({"rm": r3(r.rm, 2), "rg": r3(r.p_rec / n1, 1), "tgg": r3(r.p_tg / n1, 1)} if r.rm == r.rm else {})})
     # ---- research tables
     def usage(x):
         gp = x.groupby("pid").agg(n=("name", "last"), t=("posteam", "last"), pos=("pos", "last"), gp=("game_id", "nunique"), snp=("snp", "mean"),
@@ -532,15 +577,15 @@ def make(season=None, old=None):
     tms = {str(int(y)): teams(d[d.season == y]) for y in seasons[-2:]}
     out = {"season": int(season), "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "through": str(d.gameday.max()),
            "lastwk": int(dcur.week.max()) if len(dcur) else 0, "sched": sched, "picks": picks, "players": players, "teams": tms,
-           "model": model, "trk": trk, "feed": td_feed(pbp, d, pl, [season - 1, season])}
+           "model": model, "trk": trk, "feed": td_feed(pbp, d, pl, [season - 1, season]), "rtrk": rtrk}
     tg_ = {r[2] for r in trk}           # kickoff day and time of every graded game, for slot lines on the Tracker (e.g. the 4:25 TE)
     kk = games[games.game_id.isin(tg_)]
     out["kick"] = {gid: f"{str(wd)[:3]} {gt}" for gid, wd, gt in zip(kk.game_id, kk.weekday, kk.gametime)}
     note = None
     bf = os.environ.get("ODDS_BACKFILL", "").strip().lower()
-    if bf in ("1", "2", "3", "4", "5", "true"):
+    if bf in ("1", "2", "3", "4", "5", "6", "true"):
         try:
-            backfill(season, int(os.environ.get("ODDS_LEAD", "60")), True, int(os.environ.get("ODDS_BACKFILL_MAX", "0")) or None, back=1 if bf in ("2", "5") else 0, first=bf == "3", two=bf in ("4", "5"))
+            backfill(season, int(os.environ.get("ODDS_LEAD", "60")), True, int(os.environ.get("ODDS_BACKFILL_MAX", "0")) or None, back=1 if bf in ("2", "5") else 0, first=bf == "3", two=bf in ("4", "5"), lad=bf == "6")
         except SystemExit as e:
             note = str(e)
             print(note, file=sys.stderr)
@@ -600,6 +645,14 @@ def make(season=None, old=None):
                     bt_[who] = [who, price, bk]
         if bt_:
             out["odds"][k]["bestt"] = list(bt_.values())
+        br_ = {}
+        for bk, rows_ in (v.get("r") or {}).items():
+            for who, rung, price in rows_:
+                kk = (who, rung)
+                if kk not in br_ or american(price) > american(br_[kk][2]):
+                    br_[kk] = [who, rung, price, bk]
+        if br_:
+            out["odds"][k]["bestr"] = list(br_.values())
     if note:
         out["odds"]["_meta"]["err"] = note[:200]
     try:
@@ -959,6 +1012,23 @@ def parse_two(doc):
     return out
 
 
+def parse_ladder(doc, market="player_receptions_alternate"):
+    """{book: [[player, rung, american price], ...]} for the alt-receptions ladder: the over on 4.5 is stored as rung 5 (5+ catches)."""
+    out = {}
+    for bk in doc.get("bookmakers") or []:
+        rows = {}
+        for mk in bk.get("markets") or []:
+            if mk.get("key") != market:
+                continue
+            for o in mk.get("outcomes") or []:
+                who, price, pt = o.get("description"), o.get("price"), o.get("point")
+                if who and str(o.get("name")) == "Over" and isinstance(price, (int, float)) and isinstance(pt, (int, float)):
+                    rows[(who, int(math.floor(pt)) + 1)] = int(price)
+        if rows:
+            out[bk.get("title") or bk.get("key")] = [[k[0], k[1], v] for k, v in sorted(rows.items())]
+    return out
+
+
 TWO = {"p": 0.20, "lo": -0.10, "hi": 0.50}      # the 2+ TD picks: chance of two 20%+, edge -10% to +50%, best four by edge (the page uses the same numbers)
 
 
@@ -1004,6 +1074,7 @@ def remember_odds(sched, old, force=False):
         due = sum(1 for h in looks if hrs <= h)          # looks whose time has come
         nof = rec.get("b") and not rec.get("f") and rec.get("ftries", 0) < 3 and hrs <= looks[0]     # one catch-up for first-TD prices
         nof = nof or (rec.get("b") and not rec.get("t") and rec.get("ttries", 0) < 2 and hrs <= looks[0])      # and for 2+ TD prices
+        nof = nof or (rec.get("b") and not rec.get("r") and rec.get("rtries", 0) < 2 and hrs <= looks[0])      # and for receptions ladders
         if 0 < hrs and ((due > rec.get("n", 0) and rec.get("tries", 0) < 8) or nof or (force and hrs <= 72)):
             want.append((u, due))
     if want:
@@ -1014,9 +1085,9 @@ def remember_odds(sched, old, force=False):
                 eid = ids.get((u["a"], u["h"]))
                 if not eid:
                     continue
-                raw, hd = get(f"{ODDS_API}/events/{eid}/odds?apiKey={key}&regions=us&markets=player_anytime_td,player_1st_td,player_tds_over&oddsFormat=american", 60, headers=True)
+                raw, hd = get(f"{ODDS_API}/events/{eid}/odds?apiKey={key}&regions=us&markets=player_anytime_td,player_1st_td,player_tds_over,player_receptions_alternate&oddsFormat=american", 60, headers=True)
                 doc = json.loads(raw)
-                books, first, two = parse_td(doc), parse_td(doc, "player_1st_td"), parse_two(doc)
+                books, first, two, lad = parse_td(doc), parse_td(doc, "player_1st_td"), parse_two(doc), parse_ladder(doc)
                 left = hd.get("x-requests-remaining")
                 if left is not None:
                     meta["left"] = int(float(left))
@@ -1033,6 +1104,10 @@ def remember_odds(sched, old, force=False):
                         rec["t"] = two
                     else:
                         rec["ttries"] = rec.get("ttries", 0) + 1
+                    if lad:
+                        rec["r"] = lad
+                    else:
+                        rec["rtries"] = rec.get("rtries", 0) + 1
                 else:
                     rec["tries"] = rec.get("tries", 0) + 1      # market not posted yet; try again next run
                 store[u["gid"]] = rec
@@ -1049,7 +1124,7 @@ def remember_odds(sched, old, force=False):
     return store
 
 
-def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=False):
+def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=False, lad=False):
     """Closing-ish anytime-TD prices for this season's finished games, from The Odds API's historical endpoints (paid plans only).
 
     For each finished game without stored prices it asks for the snapshot `lead` minutes before kickoff. Cost: 10 requests per
@@ -1064,7 +1139,9 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
         store = json.load(open(ODDS, encoding="utf-8"))
     except Exception:
         store = {}
-    if two:        # 2+ TD prices for games that do not have them yet
+    if lad:        # alt-receptions ladders for games that do not have them yet
+        todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("r") and not (store.get(r.game_id) or {}).get("rtry")]
+    elif two:        # 2+ TD prices for games that do not have them yet
         todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("t") and not (store.get(r.game_id) or {}).get("ttry")]
     elif first:    # first-touchdown prices for games that do not have them yet (and anytime too where that is missing)
         todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("f") and not (store.get(r.game_id) or {}).get("ftry")]
@@ -1107,6 +1184,8 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
                 mk = "player_anytime_td" if not first else "player_1st_td" if old_rec.get("b") else "player_anytime_td,player_1st_td"
                 if two:
                     mk = "player_tds_over" if old_rec.get("b") else "player_anytime_td,player_tds_over"
+                if lad:
+                    mk = "player_receptions_alternate"
                 raw, hd = get(f"{ODDS_API.replace('/v4/', '/v4/historical/')}/events/{eid}/odds?apiKey={key}&regions=us&markets={mk}"
                               f"&oddsFormat=american&date={stamp}", 60, headers=True)
             except urllib.error.HTTPError as e:
@@ -1117,6 +1196,21 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
                 continue
             doc = json.loads(raw)
             books = parse_td(doc.get("data") or {})
+            if lad:
+                ladder = parse_ladder(doc.get("data") or {})
+                rec = dict(old_rec)
+                rec.update({"r": ladder, "rat": doc.get("timestamp") or stamp} if ladder else {"rtry": 1})
+                store[r.game_id] = rec
+                got += 1 if ladder else 0
+                with open(ODDS, "w", encoding="utf-8") as f:
+                    json.dump(store, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+                left = hd.get("x-requests-remaining")
+                print(f"  {r.game_id}: {len(ladder)} books with ladders" + (f"  ({left} requests left)" if left else ""), flush=True)
+                if left is not None and float(left) < 50:
+                    print("Request allowance nearly used; stopping.")
+                    return
+                time.sleep(0.3)
+                continue
             ftd = parse_td(doc.get("data") or {}, "player_1st_td") if first else {}
             if two:
                 first, ftd = True, parse_two(doc.get("data") or {})      # stored below under "t" in place of "f"
