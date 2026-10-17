@@ -890,7 +890,7 @@ function saveBets(){ls("atd-bets",BETS)}
 function say2(t){var el=$("toast");el.textContent=t;el.hidden=false;clearTimeout(say2.t);say2.t=setTimeout(function(){el.hidden=true},2200)}
 function addBet(key){var parts=key.split("|"),book=parts.pop(),kind=parts.pop(),id=parts.join("|"),r=rowOf(id);if(!r)return;var g=gm(r.g),od=oddsFor(r.g);
   var rk=kind.charAt(0)==="r"?+kind.slice(1):0,ouk=/^[OU]/.test(kind),by=ouk?ouBy(r,kind):rk?(((od.byr[norm(r.n)]||{})[rk])||{}):(kind==="f"?od.byf:kind==="t"?od.byt:od.by)[norm(r.n)]||{},a=book==="Your price"?MAN[id]:by[book];if(a==null)return;
-  BETS.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),gid:r.g,pid:r.id,n:r.n,t:r.t,o:r.o,home:g&&g.h===r.t?1:0,pos:r.pos,mk:ouk?(kind.charAt(0)==="O"?"ro":"ru"):rk?"r":kind,k:ouk?+kind.slice(1):rk||undefined,book:book,odds:a,listed:a,units:1,settle:"auto",ko:g?g.ts:null,added:new Date().toISOString()});
+  BETS.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),gid:r.g,pid:r.id,n:r.n,t:r.t,o:r.o,home:g&&g.h===r.t?1:0,pos:r.pos,ch:kindChance(r,kind),mk:ouk?(kind.charAt(0)==="O"?"ro":"ru"):rk?"r":kind,k:ouk?+kind.slice(1):rk||undefined,book:book,odds:a,listed:a,units:1,settle:"auto",ko:g?g.ts:null,added:new Date().toISOString()});
   saveBets();unpin();say2("Added: "+r.n+" "+kindLab(kind)+" "+fmtA(a)+" at "+book);render(true)}
 var _off;function official(){if(_off)return _off;var o={};(D.feed||[]).forEach(function(f){var g=o[f[2]]=o[f[2]]||{td:{},first:null};var k=norm(f[3]);if(g.first==null)g.first=k;g.td[k]=(g.td[k]||0)+1});(D.trk||[]).forEach(function(r){if(!o[r[2]])o[r[2]]={td:{},first:null}});return _off=o}
 /* what has happened for a bet: touchdowns so far, whether he scored first, whether the game is over */
@@ -914,6 +914,18 @@ var _rx;function recOf(gid,n){if(!_rx){_rx={};(D.rtrk||[]).forEach(function(r){_
 /* catches so far: the official count once nflverse has the game, else the live box score */
 function catches(gid,t,n){var o=recOf(gid,n);if(o!=null)return{n:o,fin:true};var L=(D.live||{})[gid],bx=L&&L.box&&L.box[t],rows=bx&&bx.c||[],k=norm(n);
   for(var i=0;i<rows.length;i++)if(norm(rows[i][0])===k)return{n:parseInt(rows[i][2],10)||0,fin:L.st==="post"};return{n:L?(L.st==="post"?0:null):null,fin:L&&L.st==="post"}}
+/* model chance for a bet: kept from when it was added; older bets are filled in from the stored chances where we still have them */
+function kindChance(r,kind){calc(r);var c=kind.charAt(0),x=recRow(r.g,r.id);
+  if(c==="r"){var k=+kind.slice(1),z=x&&x.lad[k];return z?z.p:nbGe(r.rm,k)}
+  if(c==="O"||c==="U"){var s=x&&(c==="O"?x.ov:x.un);return s?s.p:null}
+  return kind==="f"?r.pf:kind==="t"?r._p2:r.p}
+var _tc;function trkRow(gid,n){if(!_tc){_tc={};(D.trk||[]).forEach(function(r){_tc[r[2]+"|"+norm(r[3])]=r})}return _tc[gid+"|"+norm(n)]}
+function betChance(b){if(b.ch!=null)return b.ch;
+  if(b.mk==="p")return null;
+  var r=rowOf(b.gid+"|"+b.pid);if(r&&b.mk!=="ro"&&b.mk!=="ru")return kindChance(r,b.mk==="r"?"r"+b.k:b.mk);
+  if(b.mk==="ro"||b.mk==="ru"){var x=recRow(b.gid,b.pid)||recRow(b.gid,"x:"+norm(b.n));if(x&&String(x.line)===String(b.k)){var s=b.mk==="ro"?x.ov:x.un;return s?s.p:null}return null}
+  if(b.mk==="r"){var y=recRow(b.gid,"x:"+norm(b.n));if(y&&y.lad[b.k])return y.lad[b.k].p;return null}
+  var t=trkRow(b.gid,b.n);if(!t)return null;return b.mk==="a"?t[7]:b.mk==="f"?t[10]:b.mk==="t"?two(t[7],t[6],t[15]):null}
 function betPl(b,res){return res.st==="won"?b.units*(dec(b.odds)-1):res.st==="lost"?-b.units:res.st==="void"?0:null}
 function wkOf(gid){var p=String(gid).split("_");return{s:+p[0],w:+p[1],k:p[0]+"|"+p[1]}}
 function uTxt(x,d){return (x>=0?"+":"−")+Math.abs(x).toFixed(d==null?2:d)+"u"}
@@ -934,12 +946,12 @@ function vBets(){
   var f=S.bf||"all",list=rows.filter(function(x){return f==="all"||(f==="open")===(x.res.st==="open")});
   h+='<section class="panel"><div class="phead"><h2>My bets · '+rows.length+'</h2><div class="filters">'+seg("seg-bf",[["all","All"],["open","Open"],["settled","Settled"]],f)+'<label class="f" for="unitIn">One unit = $ <input type="text" id="unitIn" inputmode="decimal" value="'+UNIT+'" style="width:70px"></label><button class="btn ghost" type="button" id="betExport">Export</button><button class="btn ghost" type="button" id="betImport">Import</button><input type="file" id="betFile" accept="application/json,.json" hidden></div></div>';
   if(!list.length)return h+'<p class="empty">'+(rows.length?"Nothing in this view.":"No bets yet. Click a price anywhere on the site to add one.")+"</p></section>";
-  h+='<div class="tw"><table class="bets"><thead><tr><th>Week</th><th>Team</th><th>Player</th><th>Bet</th><th>Book</th><th class="n">Odds</th><th class="n">Listed</th><th class="n" title="Closing-line value: the price you took against that book\'s last price before kickoff (anytime TD only). Positive = you beat the close. Before kickoff it compares with the latest price.">CLV</th><th class="n">Units</th><th class="n">To win</th><th>Result</th><th class="n">Units won</th><th>Settle</th><th></th><th class="wkc">Week</th></tr></thead><tbody>';
+  h+='<div class="tw"><table class="bets"><thead><tr><th>Week</th><th>Team</th><th>Player</th><th>Bet</th><th>Book</th><th class="n">Odds</th><th class="n">Listed</th><th class="n" title="Closing-line value: the price you took against that book\'s last price before kickoff (anytime TD only). Positive = you beat the close. Before kickoff it compares with the latest price.">CLV</th><th class="n" title="The model\'s chance when you added the bet (filled in from stored chances for older bets)">Chance</th><th class="n" title="Chance × the odds you took − 1">Edge</th><th class="n">Units</th><th class="n">To win</th><th>Result</th><th class="n">Units won</th><th>Settle</th><th></th><th class="wkc">Week</th></tr></thead><tbody>';
   var wsum={};rows.forEach(function(x){var z=wsum[x.wk.k]=wsum[x.wk.k]||{u:0,w:0,n:0,o:0};if(x.res.st==="open")z.o++;else if(x.res.st!=="void"){z.u+=x.pl;z.n++;if(x.res.st==="won")z.w++}});
   var last=null;list.forEach(function(x,ix){var b=x.b,brk=last!==null&&last!==x.wk.k;last=x.wk.k;var end=ix===list.length-1||list[ix+1].wk.k!==x.wk.k,z=wsum[x.wk.k];
     var wtxt=end?'<span class="o">'+wkFull(x.wk.s,x.wk.w)+"</span> "+(z.n?z.w+"–"+(z.n-z.w)+' <b class="'+(z.u>=0?"pos":"neg")+'">'+uTxt(z.u)+"</b>":"")+(z.o?(z.n?" · ":"")+z.o+" open":""):"";
     h+='<tr'+(brk?' class="wkb"':"")+'><td>'+wkFull(x.wk.s,x.wk.w)+(x.wk.s!==D.season?' <span class="o">'+x.wk.s+"</span>":"")+"</td><td>"+(b.mk==="p"?'<span class="o">–</span>':tmL(b.t))+"</td><td>"+(b.mk==="p"?legsTxt(b):'<span class="pn">'+esc(b.n)+'</span> <span class="o">'+(b.home?"vs ":"@ ")+esc(b.o)+"</span>")+'</td><td><i class="dot '+b.mk+'"></i>'+mkLab(b)+(b.mk==="p"?' <span class="o">'+(b.legs||[]).length+" legs"+(b.boost?" · "+b.boost+"% boost":"")+"</span>":"")+"</td><td>"+esc(b.book)+
-      '</td><td class="n"><input class="ed" data-bet="'+b.id+'" data-f="odds" value="'+fmtA(b.odds)+'" aria-label="Odds"></td><td class="n o">'+(b.listed!==b.odds?fmtA(b.listed):"")+"</td>"+(function(){var c=clvOf(b);return c?'<td class="n" title="'+(c.now?"Latest":"Closing")+" price at "+esc(b.book)+": "+fmtA(c.a)+'"><span class="ev '+(Math.abs(c.v)<0.001?"":c.v>0?"p1":"neg")+'">'+(c.v>=0?"+":"")+(c.v*100).toFixed(1)+"%</span>"+(c.now?' <span class="o">so far</span>':"")+"</td>":'<td class="n o">–</td>'})()+'<td class="n"><input class="ed u" data-bet="'+b.id+'" data-f="units" value="'+b.units+'" aria-label="Units"></td><td class="n">'+f2(b.units*(dec(b.odds)-1))+"u</td><td>"+
+      '</td><td class="n"><input class="ed" data-bet="'+b.id+'" data-f="odds" value="'+fmtA(b.odds)+'" aria-label="Odds"></td><td class="n o">'+(b.listed!==b.odds?fmtA(b.listed):"")+"</td>"+(function(){var c=clvOf(b);return c?'<td class="n" title="'+(c.now?"Latest":"Closing")+" price at "+esc(b.book)+": "+fmtA(c.a)+'"><span class="ev '+(Math.abs(c.v)<0.001?"":c.v>0?"p1":"neg")+'">'+(c.v>=0?"+":"")+(c.v*100).toFixed(1)+"%</span>"+(c.now?' <span class="o">so far</span>':"")+"</td>":'<td class="n o">–</td>'})()+(function(){var ch=betChance(b),e=ch!=null?ch*dec(b.odds)-1:null;return '<td class="n">'+(ch!=null?pct(ch,1):'<span class="o">–</span>')+'</td><td class="n">'+(e!=null?'<span class="ev '+evCls(e)+'">'+evTxt(e)+"</span>":'<span class="o">–</span>')+"</td>"})()+'<td class="n"><input class="ed u" data-bet="'+b.id+'" data-f="units" value="'+b.units+'" aria-label="Units"></td><td class="n">'+f2(b.units*(dec(b.odds)-1))+"u</td><td>"+
       '<span class="tag '+(x.res.st==="won"?"rw":x.res.st==="lost"?"rl":"")+'">'+esc(x.res.lab)+'</span></td><td class="n"><b class="'+(x.pl==null?"":x.pl>=0?"pos":"neg")+'">'+(x.pl==null?"–":uTxt(x.pl))+'</b></td><td><select data-bet="'+b.id+'" data-f="settle" aria-label="Settle">'+[["auto","Auto"],["won","Won"],["lost","Lost"],["void","Void"]].map(function(o){return '<option value="'+o[0]+'"'+(b.settle===o[0]?" selected":"")+">"+o[1]+"</option>"}).join("")+'</select></td><td><button class="del" type="button" data-del="'+b.id+'" aria-label="Delete bet">×</button></td><td class="wkc">'+wtxt+"</td></tr>"});
   return h+"</tbody></table></div></section>"}
 
@@ -973,7 +985,7 @@ function render(keep){
   if(ae==="pq"&&$("pq")){$("pq").focus();$("pq").setSelectionRange(pos,pos)}}
 function say(t){$("refreshMsg").hidden=!t;$("refreshMsg").textContent=t||""}
 function start(d){
-  var oldL=D&&D.live;_lrec=undefined;_off=undefined;_rx=undefined;_rrow=undefined;D=d;if(oldL){D.live=D.live||{};Object.keys(oldL).forEach(function(k){if(!D.live[k]&&gm(k))D.live[k]=oldL[k]})}IDX={};_rec=undefined;var w=weeks();if(S.wk==null||w.indexOf(S.wk)<0)S.wk=w[0];
+  var oldL=D&&D.live;_lrec=undefined;_off=undefined;_rx=undefined;_rrow=undefined;_tc=undefined;D=d;if(oldL){D.live=D.live||{};Object.keys(oldL).forEach(function(k){if(!D.live[k]&&gm(k))D.live[k]=oldL[k]})}IDX={};_rec=undefined;var w=weeks();if(S.wk==null||w.indexOf(S.wk)<0)S.wk=w[0];
   var b=new Date(d.built);$("fresh").textContent="Games through "+d.through+" · built "+b.toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
   render(true)}
 function post(path,body,btn,label){
@@ -1122,7 +1134,7 @@ function parLog(){var L=parLegs(),c=parCalc(L);if(!c.d)return;var bo=PAR.boost>0
   L.sort(function(a,b){return (a.g&&a.g.ts||"")<(b.g&&b.g.ts||"")?-1:1});
   BETS.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),mk:"p",gid:L[0].r.g,n:L.length+"-leg parlay",t:"",o:"",
     legs:L.map(function(l){return{gid:l.r.g,pid:l.r.id,n:l.r.n,t:l.r.t,o:l.r.o,home:l.g&&l.g.h===l.r.t?1:0,pos:l.r.pos,mk:l.kind,odds:l.a,ko:l.g?l.g.ts:null}}),
-    book:PAR.book,odds:d2a(bo?c.bd:c.d),listed:d2a(c.d),boost:PAR.boost||0,units:PAR.units||1,settle:"auto",ko:L[0].g?L[0].g.ts:null,added:new Date().toISOString()});
+    book:PAR.book,ch:c.q,odds:d2a(bo?c.bd:c.d),listed:d2a(c.d),boost:PAR.boost||0,units:PAR.units||1,settle:"auto",ko:L[0].g?L[0].g.ts:null,added:new Date().toISOString()});
   saveBets();say2("Added a "+L.length+"-leg parlay at "+fmtA(d2a(bo?c.bd:c.d))+" to My bets");render(true)}
 function legsTxt(b){return '<div class="legsx">'+(b.legs||[]).map(function(l){var s=betRes(Object.assign({},l,{settle:"auto"})).st,i=betInfo(l),done=s==="won"||s==="lost";
     return '<div class="lg '+(s==="won"?"lw":s==="lost"?"ll":"lo")+'"><i></i><span class="pn">'+esc(l.n)+"</span>"+(l.mk==="a"?"":' <span class="mk">'+MKN[l.mk]+"</span>")+(done||i.td?' <span class="o tdn">'+i.td+"</span>":"")+"</div>"}).join("")+"</div>"}
