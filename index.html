@@ -214,6 +214,7 @@ table[data-stick] .stk-end{box-shadow:inset -1px 0 0 var(--line),6px 0 8px -6px 
 @media(max-width:1250px){.pcards.five{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:820px){.pcards.five{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.pcards.five{grid-template-columns:minmax(0,1fr)}}.rz-l{display:flex;gap:8px;align-items:baseline;font-size:13.5px}.rz-l b{margin-left:auto}.rz-f{border-top:1px solid var(--line);padding-top:8px;font-size:13px;color:var(--soft)}
+.rz-add{display:flex;justify-content:flex-end;margin-top:4px}.rz-add .btn{padding:7px 14px;font-size:12.5px}
 table.lw td.lc.pk{background:color-mix(in srgb,var(--made) 12%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--made) 60%,transparent);border-radius:8px}table.lw td.lc.hitc{background:color-mix(in srgb,var(--made) 30%,transparent)}table.lw td.lnbar{border-left:2px solid var(--accent)}
 table.rtab th,table.rtab td{padding:8px 9px;white-space:nowrap}
 @media(max-width:900px){.pcards.two{grid-template-columns:minmax(0,1fr)}}
@@ -720,6 +721,15 @@ function bookBoard(wk,mode){var bk=rBk(),B=D.recb||{},R=B.rule||{};if(!bk||mode!
       for(var i=st0;i<pool.length;i++){acc.push(pool[i]);go(i+1,acc);acc.pop()}};go(0,[]);
     if(best){var kel=Math.max(best.ev,0)/(best.d-1);best.u=Math.round(Math.min(0.5,Math.max(0.1,kel*100/8))*20)/20;best.wk=wk;best.lk=0;parl.push(best)}});
   return{picks:picks,lad:lad,parl:kp.concat(parl)}}
+/* Parlay ideas → My bets: one parlay bet at the idea's book, price and suggested stake, graded leg by leg on catches */
+var RZ_ON=[];function rzSig(legs){return legs.map(function(l){return l.gid||l.g}).concat(legs.map(function(l){return norm(l.n)+"|"+(l.mk||"")+"|"+(l.k!=null?l.k:"")})).join(";")}
+function rzLegs(i){return i.legs.map(function(l){var x=recRow(l.g,l.id)||{},g=gm(l.g),m=/^(Over|Under) (.+)$/.exec(l.lab),mk=m?(m[1]==="Over"?"ro":"ru"):"r",k=m?+m[2]:parseInt(l.lab,10);
+  return{gid:l.g,pid:l.id,n:l.n,t:l.t,o:x.o||"",home:g&&g.h===l.t?1:0,pos:x.pos||"",mk:mk,k:k,odds:l.a,ch:l.p,ko:g?g.ts:((D.kick||{})[l.g]||null)}})}
+function rzLogged(i){var sg=rzSig(rzLegs(i));return BETS.some(function(b){return b.mk==="p"&&b.legs&&rzSig(b.legs)===sg})}
+document.addEventListener("click",function(e){var t=e.target.closest&&e.target.closest("[data-addrz]");if(!t)return;var i=RZ_ON[+t.dataset.addrz];if(!i||rzLogged(i))return;
+  var L=rzLegs(i).sort(function(a,b){return (a.ko||"")<(b.ko||"")?-1:1});
+  BETS.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),mk:"p",gid:L[0].gid,n:L.length+"-leg receptions parlay",t:"",o:"",legs:L,book:i.bk,ch:i.q,odds:d2a(i.d),listed:d2a(i.d),boost:0,units:i.u,settle:"auto",ko:L[0].ko,added:new Date().toISOString()});
+  saveBets();say2("Added: "+L.length+"-leg parlay "+fmtA(d2a(i.d))+" at "+i.bk+", "+f2(i.u)+"u");render(true)});
 function vRec(){
   var B=D.recb||{},rule=B.rule||{},WM=B.weeks||{},ws=Object.keys(WM).map(Number).sort(function(a,b){return a-b});
   if(ws.indexOf(S.rwk)<0)S.rwk=ws.indexOf(S.wk)>=0?S.wk:ws.length?ws[ws.length-1]:S.wk;var wk=S.rwk,mode=WM[String(wk)]||"live";
@@ -766,9 +776,9 @@ function vRec(){
   h+='<section class="panel"><div class="phead"><h2>Parlay ideas</h2><div class="filters">'+PL(tz,U(tz))+'<span class="tag">experiment · not in net units</span></div></div>';
   h+='<p class="note">Legs that each beat their own price, one a player and each from a different game, so the book pays the full multiplied price and the legs do not lean on each other. A leg is a main-line over or under with a '+Math.round((rule.pm||.45)*100)+'% or better chance sitting 1 to 4 points above that book\'s break-even, or a ladder rung one or two above the line with '+Math.round((rule.pr||.3)*100)+'% or better and an edge of '+Math.round((rule.plo||.1)*100)+'% to '+Math.round((rule.phi_||.4)*100)+'% there. Each idea is priced at the one book that posts every leg and pays the most. The chance multiplies the legs\' chances; edges compound, and so do misses, so the stake is an eighth of Kelly, 0.1u to 0.5u. The ideas lock when their first game starts.</p>';
   if(!parl.length)h+='<p class="empty">No parlay ideas this week yet.</p>';
-  else h+='<div class="pcards two">'+parl.map(function(i){var r=rzRes(i);return '<article class="pcard rz"><div class="pc-top"><b>'+i.legs.length+"-leg at "+esc(i.bk)+'</b><b class="big2">'+fmtA(d2a(i.d))+'</b><span class="tag '+(r.st==="won"?"rw":r.st==="lost"?"rl":"")+'">'+(r.st==="open"?(i.lk?"locked":"open"):r.st)+"</span></div>"+
+  else h+='<div class="pcards two">'+(RZ_ON=parl).map(function(i,ix){var r=rzRes(i),inB=rzLogged(i);return '<article class="pcard rz"><div class="pc-top"><b>'+i.legs.length+"-leg at "+esc(i.bk)+'</b><b class="big2">'+fmtA(d2a(i.d))+'</b><span class="tag '+(r.st==="won"?"rw":r.st==="lost"?"rl":"")+'">'+(r.st==="open"?(i.lk?"locked":"open"):r.st)+"</span></div>"+
     i.legs.map(function(l){var c=catches(l.g,l.t,l.n);return '<div class="rz-l"><span class="pn">'+esc(l.n)+'</span> <span class="o">'+l.t+" · "+esc(l.lab)+" "+fmtA(l.a)+" · "+pct(l.p,1)+'</span><b>'+(c.n!=null?c.n:"")+"</b></div>"}).join("")+
-    '<div class="rz-f">Chance <b>'+pct(i.q,1)+"</b> · Fair <b>"+amer(i.q)+"</b> · Edge <b>"+evTxt(i.ev)+"</b> · Stake <b>"+f2(i.u)+"u</b>"+(r.st!=="open"?" · Result <b>"+uTxt(r.pl)+"</b>":"")+"</div>"+(function(){var bk=rBk();if(!bk||bk===i.bk)return"";var d_=1,miss=0,none=0;
+    '<div class="rz-f">Chance <b>'+pct(i.q,1)+"</b> · Fair <b>"+amer(i.q)+"</b> · Edge <b>"+evTxt(i.ev)+"</b> · Stake <b>"+f2(i.u)+"u</b>"+(r.st!=="open"?" · Result <b>"+uTxt(r.pl)+"</b>":"")+"</div>"+'<div class="rz-add">'+(inB?'<span class="tag rw">In My bets</span>':'<button class="btn" type="button" data-addrz="'+ix+'">Add to My bets · '+f2(i.u)+"u at "+esc(i.bk)+"</button>")+"</div>"+(function(){var bk=rBk();if(!bk||bk===i.bk)return"";var d_=1,miss=0,none=0;
       i.legs.forEach(function(l){var x=recRow(l.g,l.id),m=/^(Over|Under) (.+)$/.exec(l.lab),q=!x?undefined:m?(String(x.line)===m[2]?rbAt(x,m[1]==="Over"?"ov":"un"):null):rbAt(x,parseInt(l.lab,10));if(q===undefined)none=1;else if(!q)miss=1;else d_*=dec(q.a)});
       if(none)return"";if(miss)return '<div class="rz-f o">Not every leg is posted at '+esc(bk)+".</div>";return '<div class="rz-f">At '+esc(bk)+" <b>"+fmtA(d2a(d_))+"</b> · Edge <b>"+evTxt(i.q*d_-1)+"</b></div>"})()+"</article>"}).join("")+"</div>";
   h+="</section>";
@@ -1322,7 +1332,7 @@ function parLog(){var L=parLegs(),c=parCalc(L);if(!c.d)return;var bo=PAR.boost>0
     book:PAR.book,ch:c.q,odds:d2a(bo?c.bd:c.d),listed:d2a(c.d),boost:PAR.boost||0,units:PAR.units||1,settle:"auto",ko:L[0].g?L[0].g.ts:null,added:new Date().toISOString()});
   saveBets();say2("Added a "+L.length+"-leg parlay at "+fmtA(d2a(bo?c.bd:c.d))+" to My bets");render(true)}
 function legsTxt(b){return '<div class="legsx">'+(b.legs||[]).map(function(l){var s=betRes(Object.assign({},l,{settle:"auto"})).st,i=betInfo(l),done=s==="won"||s==="lost";
-    return '<div class="lg '+(s==="won"?"lw":s==="lost"?"ll":"lo")+'"><i></i><span class="pn">'+esc(l.n)+"</span>"+(l.mk==="a"?"":' <span class="mk">'+MKN[l.mk]+"</span>")+(done||i.td?' <span class="o tdn">'+i.td+"</span>":"")+"</div>"}).join("")+"</div>"}
+    return '<div class="lg '+(s==="won"?"lw":s==="lost"?"ll":"lo")+'"><i></i><span class="pn">'+esc(l.n)+"</span>"+(l.mk==="a"?"":' <span class="mk">'+mkLab(l)+"</span>")+(/^r/.test(l.mk)?(function(){var c=catches(l.gid,l.t,l.n);return c.n!=null?' <span class="o tdn">'+c.n+"</span>":""})():(done||i.td?' <span class="o tdn">'+i.td+"</span>":""))+"</div>"}).join("")+"</div>"}
 /* chart tooltips */
 document.addEventListener("pointermove",function(e){var t=e.target.closest&&e.target.closest("[data-tip]"),tip=$("tip");if(!t){tip.hidden=true;return}tip.textContent=t.getAttribute("data-tip");tip.hidden=false;tip.style.left=Math.min(e.clientX+14,window.innerWidth-tip.offsetWidth-8)+"px";tip.style.top=(e.clientY+14)+"px"});
 if(served){$("refreshBtn").hidden=false;$("refreshBtn").addEventListener("click",function(){say("Fetching games and prices.");post("/refresh","",this,"Refreshing…")})}
