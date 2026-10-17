@@ -45,7 +45,8 @@ FIT_HL = 1.0                     # when fitting the chance curve, a player-game 
 K, KT, KD = 1.5, 6.0, 30.0       # shrinkage, in games, for player shares, team run/pass mix and the defence nudge
 PBP_COLS = ["game_id", "season", "week", "posteam", "defteam", "play_type", "yardline_100", "air_yards", "two_point_attempt",
             "sack", "touchdown", "td_player_id", "rusher_player_id", "receiver_player_id", "passer_player_id", "pass_touchdown",
-            "play_id", "qtr", "fixed_drive", "time", "time_of_day", "td_team", "td_player_name", "rush_touchdown", "complete_pass"]
+            "play_id", "qtr", "fixed_drive", "time", "time_of_day", "td_team", "td_player_name", "rush_touchdown", "complete_pass",
+            "rushing_yards", "receiving_yards"]
 HTML = "touchdown_ledger.html"
 TAG = "atd-data"
 ODDS = "odds.json"
@@ -164,9 +165,9 @@ def player_games(pbp, sn, ros, games, pl):
     tgt["x"] = [TT["mean"][(e, b)] for e, b in zip(tgt.ez, tgt.tb)]
     r = rush.groupby(["game_id", "posteam", "rusher_player_id"]).agg(
         car=("x", "size"), rx=("x", "sum"), rtd=("td", "sum"), i5=("yardline_100", lambda s: int((s <= 5).sum())),
-        rzc=("yardline_100", lambda s: int((s <= 20).sum()))).reset_index().rename(columns={"rusher_player_id": "pid"})
+        rzc=("yardline_100", lambda s: int((s <= 20).sum())), ryd=("rushing_yards", "sum")).reset_index().rename(columns={"rusher_player_id": "pid"})
     t = tgt.groupby(["game_id", "posteam", "receiver_player_id"]).agg(
-        tg=("x", "size"), tx=("x", "sum"), ctd=("td", "sum"), ez=("ez", "sum"), rec=("complete_pass", "sum"),
+        tg=("x", "size"), tx=("x", "sum"), ctd=("td", "sum"), ez=("ez", "sum"), rec=("complete_pass", "sum"), cyd=("receiving_yards", "sum"),
         rzt=("yardline_100", lambda s: int((s <= 20).sum()))).reset_index().rename(columns={"receiver_player_id": "pid"})
     pg = r.merge(t, on=["game_id", "posteam", "pid"], how="outer").fillna(0)
     # the bet settles on any touchdown the player scores himself (rushing, receiving, return); throwing one does not count
@@ -541,8 +542,10 @@ def make(season=None, old=None):
         logs, rlog = {}, {}
         for pid, x in d[d.pid.isin(set(u.pid))].groupby("pid", sort=False):
             rlog[pid] = [int(v) for v in x.rec.tail(10)]
+            # game log, last ten: [label, opp, snaps, car, tgt, in5, ez, rz, xTD, TD, catches, rush yds, rec yds, game id]
             logs[pid] = [[f"{int(r.season) % 100}w{int(r.week)}", r.opp, r3(r.snp, 2), int(r.car), int(r.tg), int(r.i5), int(r.ez),
-                          int(r.rzc + r.rzt), r3(r.rx + r.tx, 2), int(r.tds)] for r in x.tail(6).itertuples()]
+                          int(r.rzc + r.rzt), r3(r.rx + r.tx, 2), int(r.tds), int(r.rec), int(round(r.ryd)), int(round(r.cyd)), r.game_id]
+                         for r in x.tail(10).itertuples()]
         for r in u.itertuples():
             n1 = max(r.n, 1e-9)
             picks.append({"g": r.game_id, "id": r.pid, "n": r.name, "t": r.posteam, "o": r.opp, "pos": r.pos, "p": r3(r.p, 4), "pf": r3(r.pf, 4),

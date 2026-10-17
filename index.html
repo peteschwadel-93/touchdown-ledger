@@ -193,7 +193,8 @@ table.lad td.lc{white-space:nowrap}table.lad td.lc .px{font:600 13.5px var(--mon
 .rp-ls{display:flex;flex-direction:column;gap:7px;font-size:13px}.rp-l{display:flex;justify-content:space-between;gap:10px;align-items:baseline}.rp-l>span{color:var(--muted)}.rp-l b{font-weight:600;text-align:right}.rp-ls hr{border:0;border-top:1px solid var(--line);margin:4px 0}
 .big2{font:700 22px var(--display)}.acc{color:var(--accent)}.lnk.big{font:inherit;color:inherit;text-transform:inherit}.pcard.miss{opacity:.85}
 .pcards.two{grid-template-columns:repeat(2,minmax(0,1fr))}.rz .pc-top{gap:12px}
-.rtab th.sep,.rtab td.sep{border-left:1px solid var(--line)}
+.rtab th.sep,.rtab td.sep,.glog th.sep,.glog td.sep{border-left:1px solid var(--line)}
+.calc>.span2{grid-column:1/-1}.glog td{white-space:nowrap}.glog tr.avg td{border-top:1px solid var(--line);color:var(--soft);font-weight:600}.glog .pos{color:var(--made)}.glog .neg{color:var(--miss)}
 table[data-stick] .stk{position:sticky;z-index:2;background:var(--bg)}
 table[data-stick] tbody tr:nth-child(odd)>td.stk{background:color-mix(in srgb,var(--surface) 55%,var(--bg))}
 table[data-stick] thead th.stk{z-index:3}
@@ -482,7 +483,7 @@ function detail(r){
   else h+='<p class="note">No book prices loaded for this player. Bet only at <b>'+amer(r.p)+"</b> or longer.</p>";
   if(r._pick)h+='<p class="note"><b>Ledger pick.</b> Chance 20%+ with an edge between 3% and 25% at the best price.</p>';
   if(r._ev!=null&&r._ev>PK.hi)h+='<p class="note"><b>Check the news first.</b> Edges above 25% lost money in the back-check. It usually means the book knows something the usage history does not: a role change, a returning starter, a snap limit.</p>';
-  h+="</div>"+notesBlock(r)+'<div><h3>Recent games</h3>'+logTable(r)+'<p class="note">Weighted averages: '+f2(r.x)+" xTD, "+f2(r.td)+" TD, "+f2(r.rz,1)+" red-zone chances, "+f2(r.i5)+" carries inside the 5, "+f2(r.ez)+" end-zone targets per game.</p></div></div>";
+  h+="</div>"+notesBlock(r)+'<div class="span2"><h3>Recent games</h3>'+logTable(r)+'<p class="note">Weighted averages: '+f2(r.x)+" xTD, "+f2(r.td)+" TD, "+f2(r.rz,1)+" red-zone chances, "+f2(r.i5)+" carries inside the 5, "+f2(r.ez)+" end-zone targets per game.</p></div></div>";
   return h}
 function fmtDay(d){var x=new Date(d);return isNaN(x)?"":x.toLocaleDateString([],{month:"short",day:"numeric"})}
 function notesBlock(r){
@@ -509,8 +510,21 @@ function loadNews(eid){if(!eid||NEWS[eid]!==undefined||!hosted())return;NEWS[eid
   fetch("https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/athletes/"+eid+"/overview").then(function(r){return r.json()}).then(function(j){
     NEWS[eid]=((j.news||[]).filter(function(x){return Date.now()-new Date(x.published||0).getTime()<30*864e5}).slice(0,4)).map(function(x){var u=((x.links||{}).web||{}).href||"";return{h:x.headline||"",d:x.published||"",u:/^https:\/\//.test(u)?u:""}}).filter(function(x){return x.h})}).catch(function(){NEWS[eid]=[]})
     .then(function(){var el=$("news-"+eid);if(el)el.innerHTML=headsHtml(eid)})}
+/* game log: last ten games, with what the model said before each one (TD chance, expected catches) where we kept it */
+var _pre;function preOf(gid,n){if(!_pre){_pre={};(D.trk||[]).forEach(function(r){_pre[r[2]+"|"+norm(r[3])]={p:r[7]}});(D.rtrk||[]).forEach(function(r){var k=r[2]+"|"+norm(r[3]);(_pre[k]=_pre[k]||{}).mu=r[7]})}return _pre[gid+"|"+norm(n)]||{}}
 function logTable(r){if(!r.log||!r.log.length)return'<p class="empty">No games on record.</p>';
-  return '<div class="tw logt"><table class="mini"><thead><tr><th>Wk</th><th>Opp</th><th class="n">Snaps</th><th class="n">Car</th><th class="n">Tgt</th><th class="n" title="Carries inside the 5">In 5</th><th class="n" title="End-zone targets">EZ</th><th class="n" title="Red-zone carries and targets">RZ</th><th class="n">xTD</th><th class="n">TD</th></tr></thead><tbody>'+r.log.slice().reverse().map(function(l){return "<tr><td>"+l[0]+"</td><td>"+l[1]+'</td><td class="n">'+pct(l[2])+'</td><td class="n">'+l[3]+'</td><td class="n">'+l[4]+'</td><td class="n">'+l[5]+'</td><td class="n">'+l[6]+'</td><td class="n">'+l[7]+'</td><td class="n">'+f2(l[8])+'</td><td class="n">'+(l[9]?'<span class="tag w">'+l[9]+"</span>":"0")+"</td></tr>"}).join("")+"</tbody></table></div>"}
+  var full=r.log[0].length>10,L=r.log.slice().reverse(),sm=function(i){var t=0;L.forEach(function(l){t+=l[i]||0});return t},n=L.length,av=function(i,d){return f2(sm(i)/n,d)};
+  var lab=function(l){var m=/^(\d+)w(\d+)$/.exec(l[0]);if(!m)return l[0];var y=2000+(+m[1]);return (y===D.season?"":"’"+m[1]+" ")+(+m[2]>18?wkLab(y,+m[2]):"Wk "+m[2])};
+  var head='<th>Game</th><th>Opp</th><th class="n">Snaps</th><th class="n">Car</th>'+(full?'<th class="n" title="Rushing yards">Rush yds</th>':"")+'<th class="n">Tgt</th>'+(full?'<th class="n" title="Catches">Rec</th><th class="n" title="Receiving yards">Rec yds</th>':"")+
+    '<th class="n" title="Carries inside the 5">In 5</th><th class="n" title="End-zone targets">EZ</th><th class="n" title="Red-zone carries and targets">RZ</th><th class="n" title="Expected touchdowns from where his carries and targets happened">xTD</th>'+
+    (full?'<th class="n sep" title="The model\'s chance he scored, set before kickoff">Model TD</th><th class="n" title="Catches the model expected before kickoff">xRec</th>':"")+'<th class="n">TD</th>';
+  var body=L.map(function(l){var pr=full?preOf(l[13],r.n):{},hit=l[9]>0;return '<tr'+(hit?' class="sc"':"")+"><td>"+lab(l)+"</td><td>"+l[1]+'</td><td class="n">'+pct(l[2])+'</td><td class="n">'+l[3]+"</td>"+(full?'<td class="n">'+(l[3]?l[11]:'<span class="o">–</span>')+"</td>":"")+'<td class="n">'+l[4]+"</td>"+
+    (full?'<td class="n"><b>'+l[10]+'</b></td><td class="n">'+(l[4]?l[12]:'<span class="o">–</span>')+"</td>":"")+'<td class="n">'+l[5]+'</td><td class="n">'+l[6]+'</td><td class="n">'+l[7]+'</td><td class="n">'+f2(l[8])+"</td>"+
+    (full?'<td class="n sep">'+(pr.p!=null?pct(pr.p):'<span class="o">–</span>')+'</td><td class="n">'+(pr.mu!=null?'<span class="'+(l[10]>pr.mu?"pos":l[10]<pr.mu?"neg":"")+'">'+f2(pr.mu,1)+"</span>":'<span class="o">–</span>')+"</td>":"")+
+    '<td class="n">'+(hit?'<span class="tag w">'+l[9]+"</span>":"0")+"</td></tr>"}).join("");
+  var foot='<tr class="avg"><td>Average</td><td class="o">'+n+' g</td><td class="n">'+pct(sm(2)/n)+'</td><td class="n">'+av(3,1)+"</td>"+(full?'<td class="n">'+av(11,0)+"</td>":"")+'<td class="n">'+av(4,1)+"</td>"+(full?'<td class="n"><b>'+av(10,1)+'</b></td><td class="n">'+av(12,0)+"</td>":"")+
+    '<td class="n">'+av(5,1)+'</td><td class="n">'+av(6,1)+'</td><td class="n">'+av(7,1)+'</td><td class="n">'+av(8,2)+"</td>"+(full?'<td class="n sep"></td><td class="n"></td>':"")+'<td class="n">'+sm(9)+" in "+L.filter(function(l){return l[9]>0}).length+"</td></tr>";
+  return '<div class="tw logt"><table class="mini glog" data-stick="2"><thead><tr>'+head+"</tr></thead><tbody>"+body+foot+"</tbody></table></div>"+(full?'<p class="note">Last ten games, newest first, including last season. Highlighted rows are games he scored. <b>Model TD</b> and <b>xRec</b> are what the model said before kickoff (kept for 2025 on and 2026 on); xRec is green when he beat it.</p>':"")}
 
 /* ---------- Games ---------- */
 var GC=[["Player",function(r){return r.n},"",""],["Model",function(r){return r.p},"","n k"],["Fair",function(r){return r.p},"","n k"],["Price",function(r){return r._pr?dec(r._pr.a):null},"Best price found","n"],["Edge",function(r){return r._ev},"","n k"],["Blend",function(r){return r._k},"Kelly stake: value weighted by likelihood","n"],
@@ -1048,7 +1062,7 @@ function vBets(){
 var TCOL={ARI:"#97233F",ATL:"#A71930",BAL:"#241773",BUF:"#00338D",CAR:"#0085CA",CHI:"#0B162A",CIN:"#FB4F14",CLE:"#311D00",DAL:"#003594",DEN:"#FB4F14",DET:"#0076B6",GB:"#203731",HOU:"#03202F",IND:"#002C5F",JAX:"#006778",KC:"#E31837",LV:"#3a3a3a",LAC:"#0080C6",LA:"#003594",MIA:"#008E97",MIN:"#4F2683",NE:"#002244",NO:"#9F8958",NYG:"#0B2265",NYJ:"#125740",PHI:"#004C54",PIT:"#3a3320",SF:"#AA0000",SEA:"#002244",TB:"#D50A0A",TEN:"#0C2340",WAS:"#5A1414"};
 function modalHtml(r){var id=r.g+"|"+r.id,g=gm(r.g),L=liveRes(r);
   var ys=Object.keys(D.players||{}).sort().reverse(),ms=S.msea&&ys.indexOf(S.msea)>=0?S.msea:ys[0],st=((D.players||{})[ms]||[]).filter(function(x){return norm(x[0])===norm(r.n)})[0];
-  var h='<div class="mhead" style="--tc:'+(TCOL[r.t]||"#2a3530")+'"><span class="big">'+lg(r.t)+"</span>"+(r.eid?'<img class="shot" alt="" src="https://a.espncdn.com/i/headshots/nfl/players/full/'+esc(String(r.eid))+'.png" onerror="this.remove()">':"")+
+  var h='<div class="mhead" style="--tc:'+(TCOL[r.t]||"#2a3530")+'"><span class="big">'+lg(r.t)+"</span>"+(r.eid?'<span class="shotslot" data-eid="'+esc(String(r.eid))+'"></span>':"")+
     "<div><h2>"+esc(r.n)+'</h2><div class="sub">'+lg(r.t)+"<span>"+r.t+" · "+r.pos+" · "+vsTxt(r)+(g?" · "+esc(g.t):"")+"</span>"+injTag(r)+pickTag(r)+liveTag(r)+'</div></div><button class="mclose" type="button" data-close="1" aria-label="Close">×</button></div><div class="mbody">';
   h+='<div class="mrow">'+seg("seg-ms",ys.map(function(y){return[y,y]}),ms)+"</div>";
   var T=function(a,b,c){return '<div class="tile"><h4>'+a+"</h4><b>"+b+"</b><span>"+c+"</span></div>"};
@@ -1088,9 +1102,16 @@ function modalLite(n){var ys=Object.keys(D.players||{}).sort().reverse(),ms=S.ms
   var rt=(D.rtrk||[]).filter(function(r){return norm(r[3])===norm(n)}).slice(-8);
   if(rt.length)h+='<h3 class="sec">Catches this season<i>expected before kickoff → caught</i></h3><div class="chips">'+rt.map(function(r){return "<span>Wk "+r[1]+" "+vsGid(r[2],r[4],r[5])+" · "+f2(r[7],1)+" → <b>"+r[8]+"</b></span>"}).join("")+"</div>";
   return h+"</div>"}
+/* headshots: one image element per player, made once and moved into each fresh render, so the photo never reloads or flickers.
+   A resized copy from ESPN's image server first (a fraction of the full file), the full-size file if that fails. */
+var SHOT={};function fillShots(root){Array.prototype.forEach.call(root.querySelectorAll(".shotslot"),function(sl){var id=sl.dataset.eid,im=SHOT[id];
+  if(im===false){sl.remove();return}
+  if(!im){im=SHOT[id]=new Image();im.className="shot";im.alt="";im.decoding="async";var full="https://a.espncdn.com/i/headshots/nfl/players/full/"+id+".png";
+    im.onerror=function(){if(im.src!==full){im.src=full}else{SHOT[id]=false;im.remove()}};im.src="https://a.espncdn.com/combiner/i?img=/i/headshots/nfl/players/full/"+id+".png&w=350&h=254"}
+  sl.replaceWith(im)})}
 function renderModal(){var m=$("modal");if(!S.open&&S.openName){$("mbox").innerHTML=modalLite(S.openName);m.hidden=false;m.dataset.id="";document.body.style.overflow="hidden";return}
   var r=S.open?rowOf(S.open):null;if(!r){if(!m.hidden){m.hidden=true;$("mbox").innerHTML="";document.body.style.overflow=""}return}
-  calc(r);var sc=m.scrollTop,was=m.dataset.id===S.open;$("mbox").innerHTML=modalHtml(r);m.hidden=false;m.dataset.id=S.open;document.body.style.overflow="hidden";m.scrollTop=was?sc:0}
+  calc(r);var sc=m.scrollTop,was=m.dataset.id===S.open;var mx=[].map.call($("mbox").querySelectorAll(".tw"),function(e){return e.scrollLeft});$("mbox").innerHTML=modalHtml(r);fillShots($("mbox"));if(was)[].forEach.call($("mbox").querySelectorAll(".tw"),function(e,i){if(mx[i])e.scrollLeft=mx[i]});m.hidden=false;m.dataset.id=S.open;document.body.style.overflow="hidden";m.scrollTop=was?sc:0}
 var V={picks:vPicks,games:vGames,feed:vFeed,movers:vMovers,rec:vRec,ladders:vRec,players:vPlayers,teams:vTeams,tracker:vTracker,bets:vBets,model:vModel};
 /* research tables: keep the first columns (team, player, opponent) pinned while the rest scrolls sideways */
 function stickCols(){Array.prototype.forEach.call(document.querySelectorAll("table[data-stick]"),function(t){var n=Math.min(+t.dataset.stick,window.innerWidth<640?2:9),hr=t.tHead&&t.tHead.rows[0];if(!hr)return;var left=[],x=0;
@@ -1101,10 +1122,11 @@ window.addEventListener("resize",stickSoon);["load","error"].forEach(function(ev
 function render(keep){
   var y=window.scrollY,ae=document.activeElement&&document.activeElement.id,pos=ae==="pq"?$("pq").selectionStart:null;
   Array.prototype.forEach.call($("tabs").children,function(b){b.setAttribute("aria-selected",b.dataset.tab===S.tab)});
+  var tx=keep&&render._tab===S.tab?[].map.call($("view").querySelectorAll(".tw"),function(e){return e.scrollLeft}):null;render._tab=S.tab;
   $("view").innerHTML=V[S.tab]();renderModal();
   var bo=BETS.filter(function(b){return betRes(b).st==="open"}).length,bc=$("betCnt");bc.hidden=!bo;bc.textContent=bo;
   if(document.activeElement!==$("selBook"))$("bookBar").innerHTML=allBooks().length?bookSel("selBook"):"";
-  renderSlip();stickCols();
+  renderSlip();stickCols();if(tx)[].forEach.call($("view").querySelectorAll(".tw"),function(e,i){if(tx[i])e.scrollLeft=tx[i]});
   if(keep)window.scrollTo(0,y);
   if(S.open){var orow=D.picks.filter(function(x){return x.g+"|"+x.id===S.open})[0];if(orow&&orow.eid){if(NEWS[orow.eid]===undefined)loadNews(orow.eid)}}
   if(ae==="pq"&&$("pq")){$("pq").focus();$("pq").setSelectionRange(pos,pos)}}
