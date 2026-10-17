@@ -921,7 +921,7 @@ function kindChance(r,kind){calc(r);var c=kind.charAt(0),x=recRow(r.g,r.id);
   return kind==="f"?r.pf:kind==="t"?r._p2:r.p}
 var _tc;function trkRow(gid,n){if(!_tc){_tc={};(D.trk||[]).forEach(function(r){_tc[r[2]+"|"+norm(r[3])]=r})}return _tc[gid+"|"+norm(n)]}
 function betChance(b){if(b.ch!=null)return b.ch;
-  if(b.mk==="p")return null;
+  if(b.mk==="p"){var q=1;for(var i=0;i<(b.legs||[]).length;i++){var c=betChance(b.legs[i]);if(c==null)return null;q*=c}return b.legs&&b.legs.length?q:null}
   var r=rowOf(b.gid+"|"+b.pid);if(r&&b.mk!=="ro"&&b.mk!=="ru")return kindChance(r,b.mk==="r"?"r"+b.k:b.mk);
   if(b.mk==="ro"||b.mk==="ru"){var x=recRow(b.gid,b.pid)||recRow(b.gid,"x:"+norm(b.n));if(x&&String(x.line)===String(b.k)){var s=b.mk==="ro"?x.ov:x.un;return s?s.p:null}return null}
   if(b.mk==="r"){var y=recRow(b.gid,"x:"+norm(b.n));if(y&&y.lad[b.k])return y.lad[b.k].p;return null}
