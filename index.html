@@ -192,7 +192,22 @@ table.lad td.lc{white-space:nowrap}table.lad td.lc .px{font:600 13.5px var(--mon
 .rp .pc-top{font-size:14px}.rp-g{font:600 18px var(--display);letter-spacing:.06em;color:var(--accent)}.rp-side{font-weight:700}.rp-side.ov{color:var(--made);border-color:color-mix(in srgb,var(--made) 55%,transparent)}.rp-side.un{color:var(--miss);border-color:color-mix(in srgb,var(--miss) 55%,transparent)}
 .rp-ls{display:flex;flex-direction:column;gap:7px;font-size:13px}.rp-l{display:flex;justify-content:space-between;gap:10px;align-items:baseline}.rp-l>span{color:var(--muted)}.rp-l b{font-weight:600;text-align:right}.rp-ls hr{border:0;border-top:1px solid var(--line);margin:4px 0}
 .big2{font:700 22px var(--display)}.acc{color:var(--accent)}.lnk.big{font:inherit;color:inherit;text-transform:inherit}.pcard.miss{opacity:.85}
-.pcards.two{grid-template-columns:repeat(2,minmax(0,1fr))}.rz .pc-top{gap:12px}.rz-l{display:flex;gap:8px;align-items:baseline;font-size:13.5px}.rz-l b{margin-left:auto}.rz-f{border-top:1px solid var(--line);padding-top:8px;font-size:13px;color:var(--soft)}
+.pcards.two{grid-template-columns:repeat(2,minmax(0,1fr))}.rz .pc-top{gap:12px}
+/* Receptions picks: up to five a week, all in one row on a wide screen */
+.pcards.five{grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.pcards.five .pcard{padding:12px 12px 13px;gap:8px}
+.pcards.five .rp-g{font-size:15px;letter-spacing:.04em}
+.pcards.five .pc-top{font-size:12px;gap:6px;flex-wrap:wrap}
+.pcards.five .pc-game{font-size:12px}
+.pcards.five .pc-name{font-size:19px}
+.pcards.five .rp-ls{font-size:12px;gap:5px}
+.pcards.five .rp-l{gap:6px}
+.pcards.five .rp-l span{min-width:0}
+.pcards.five .rp-l b{white-space:nowrap}
+.pcards.five .big2{font-size:18px}
+@media(max-width:1250px){.pcards.five{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:820px){.pcards.five{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.pcards.five{grid-template-columns:minmax(0,1fr)}}.rz-l{display:flex;gap:8px;align-items:baseline;font-size:13.5px}.rz-l b{margin-left:auto}.rz-f{border-top:1px solid var(--line);padding-top:8px;font-size:13px;color:var(--soft)}
 table.lw td.lc.pk{background:color-mix(in srgb,var(--made) 12%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--made) 60%,transparent);border-radius:8px}table.lw td.lc.hitc{background:color-mix(in srgb,var(--made) 30%,transparent)}table.lw td.lnbar{border-left:2px solid var(--accent)}
 table.rtab th,table.rtab td{padding:8px 9px;white-space:nowrap}
 @media(max-width:900px){.pcards.two{grid-template-columns:minmax(0,1fr)}}
@@ -660,14 +675,14 @@ function vRec(){
   if(mode==="retro")h+='<p class="note warnline"><b>Back-check week.</b> No picks were recorded live this week, so this is what the board would have shown, rebuilt from the prices stored an hour before each kickoff and the catches a model that never saw 2026 expected. Results are final.</p>';
   h+='<p class="note">Each player\'s chance is the model\'s averaged half and half with the market\'s own (each book\'s over and under on the main line, margin removed). Picks are tight ends and running backs only, priced −150 or longer: on the first six weeks of 2026, receiver picks lost in five weeks of six (the most-bet, sharpest lines) and heavy favourites gave back most of the edge; tight ends and backs that pass the rule went 61 of 97, about +30% a bet at the best price. A pick needs that chance '+Math.round((rule.m||.01)*100)+' to '+Math.round((rule.mx||.04)*100)+' points above the break-even of the best price on the commonest line (on the first six weeks of 2026, bigger margins were mostly model error and lost), '+(rule.books||3)+' or more books on that line, and the model within '+Math.round((rule.gap||.12)*100)+' points of the market (a bigger gap is marked CHECK in the table, which more often means news the model has not seen). The likeliest go first, one per team, one pick for every three games and five at most. Overs and unders both qualify. Each pick locks when its game starts. These thresholds are starting guesses: the record builds on the Tracker.</p>';
   if(!picks.length)h+='<p class="empty">No picks this week yet. They need main-line receptions prices from three or more books.</p>';
-  else h+='<div class="pcards">'+picks.map(function(p_){var g=gm(p_.g),r=rpRes(p_),d_=dec(p_.a),st=r&&!r.open?(r.w?"hit":"miss"):"",x=recRow(p_.g,p_.id),row=rowOf(p_.g+"|"+p_.id);
+  else h+='<div class="pcards five">'+picks.map(function(p_){var g=gm(p_.g),r=rpRes(p_),d_=dec(p_.a),st=r&&!r.open?(r.w?"hit":"miss"):"",x=recRow(p_.g,p_.id),row=rowOf(p_.g+"|"+p_.id);
     var L=function(a,b){return '<div class="rp-l"><span>'+a+"</span><b>"+b+"</b></div>"};
     return '<article class="pcard rp '+st+'"><div class="pc-top">'+lg(p_.t)+'<b class="rp-g">'+p_.t+" "+vsGid(p_.g,p_.t,p_.o)+'</b><span class="tag rp-side '+(p_.side==="o"?"ov":"un")+'">'+(p_.side==="o"?"Over ":"Under ")+p_.line+"</span></div>"+
       '<div class="pc-game"><span class="tag pos">'+p_.pos+"</span>"+(g?esc(g.t):(D.kick||{})[p_.g]?esc(D.kick[p_.g]):"")+(p_.lk?' <span class="tag">Locked</span>':"")+'</div><div class="pc-name">'+(row?'<button class="lnk big" type="button" data-open="'+esc(p_.g+"|"+p_.id)+'">'+esc(p_.n)+"</button>":'<span class="pn">'+esc(p_.n)+"</span>")+"</div>"+
       (r?'<div><span class="tag '+(r.open?"lv":r.w?"rw":"rl")+'">'+r.n+" rec · "+(r.open?"live":r.w?"won "+uTxt(r.pl):"lost "+uTxt(r.pl))+"</span></div>":"")+
       '<div class="rp-ls">'+L("Best price",'<span class="px big2" data-px="'+esc(p_.g+"|"+p_.id)+"|"+(p_.side==="o"?"O":"U")+p_.line+'">'+fmtA(p_.a)+'</span> <span class="o">'+esc(p_.bk)+"</span>")+L("Edge",'<span class="ev '+evCls(p_.e)+'">'+evTxt(p_.e)+"</span>")+(function(){var q=x&&x.line===p_.line?rbAt(x,p_.side==="o"?"ov":"un"):undefined;if(q===undefined)return"";if(!q)return L("At "+esc(rBk()),'<span class="o">not posted</span>');var dq=dec(q.a),eq=p_.p*dq-1;
       return L("At "+esc(rBk()),'<b class="big2">'+fmtA(q.a)+'</b> <span class="ev '+evCls(eq)+'">'+evTxt(eq)+'</span> <span class="o">'+((p_.p-1/dq)>=0?"+":"−")+Math.abs((p_.p-1/dq)*100).toFixed(1)+" pts</span>")})()+
-      L("Above break-even","+"+(p_.m*100).toFixed(1)+' pts <span class="o">needs '+pct(1/d_,1)+"</span>")+L("Suggested stake",'<span class="acc">'+f2(p_.u)+"u</span>")+L("Pick chance · fair",pct(p_.p,1)+" · "+amer(p_.p))+
+      L('<span title="Above break-even">Above B/E</span>',"+"+(p_.m*100).toFixed(1)+' pts <span class="o">needs '+pct(1/d_,1)+"</span>")+L("Suggested stake",'<span class="acc">'+f2(p_.u)+"u</span>")+L("Pick chance · fair",pct(p_.p,1)+" · "+amer(p_.p))+
       L("Model says",pct(p_.side==="o"?p_.pm:1-p_.pm,1))+L("Market says",p_.mk!=null?pct(p_.side==="o"?p_.mk:1-p_.mk,1):"–")+'<hr>'+L("Expected catches",f2(p_.mu,2))+
       (row?L("Catches · targets a game",f2(row.rg,1)+" · "+f2(row.tgg,1))+L((p_.side==="o"?"Over":"Under")+" in last 10",(row.rl||[]).filter(function(v){return p_.side==="o"?v>p_.line:v<p_.line}).length+" of "+(row.rl||[]).length)+L(p_.o+" targets faced",f2(row.of,2)+"× league"):"")+"</div></article>"}).join("")+"</div>";
   h+="</section>";
