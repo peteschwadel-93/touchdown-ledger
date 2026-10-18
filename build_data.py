@@ -542,9 +542,9 @@ def make(season=None, old=None):
         logs, rlog = {}, {}
         for pid, x in d[d.pid.isin(set(u.pid))].groupby("pid", sort=False):
             rlog[pid] = [int(v) for v in x.rec.tail(10)]
-            # game log, last ten: [label, opp, snaps, car, tgt, in5, ez, rz, xTD, TD, catches, rush yds, rec yds, game id]
+            # game log, last ten: [label, opp, snaps, car, tgt, in5, ez, rz, xTD, TD, catches, rush yds, rec yds, game id, team targets]
             logs[pid] = [[f"{int(r.season) % 100}w{int(r.week)}", r.opp, r3(r.snp, 2), int(r.car), int(r.tg), int(r.i5), int(r.ez),
-                          int(r.rzc + r.rzt), r3(r.rx + r.tx, 2), int(r.tds), int(r.rec), int(round(r.ryd)), int(round(r.cyd)), r.game_id]
+                          int(r.rzc + r.rzt), r3(r.rx + r.tx, 2), int(r.tds), int(r.rec), int(round(r.ryd)), int(round(r.cyd)), r.game_id, int(r.ttg)]
                          for r in x.tail(10).itertuples()]
         for r in u.itertuples():
             n1 = max(r.n, 1e-9)

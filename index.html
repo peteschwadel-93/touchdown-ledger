@@ -218,6 +218,7 @@ table[data-stick] .stk-end{box-shadow:inset -1px 0 0 var(--line),6px 0 8px -6px 
 @media(max-width:1250px){.pcards.five{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:820px){.pcards.five{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.pcards.five{grid-template-columns:minmax(0,1fr)}}.rz-l{display:flex;gap:8px;align-items:baseline;font-size:13.5px}.rz-l b{margin-left:auto}.rz-f{border-top:1px solid var(--line);padding-top:8px;font-size:13px;color:var(--soft)}
+.rzx{border:0;background:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 4px;line-height:1}.rzx:hover{color:var(--miss)}button.tag.rzun{cursor:pointer;margin-left:4px}
 .rz-add{display:flex;justify-content:flex-end;margin-top:4px}.rz-add .btn{padding:7px 14px;font-size:12.5px}
 table.lw td.lc.pk{background:color-mix(in srgb,var(--made) 12%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--made) 60%,transparent);border-radius:8px}table.lw td.lc.hitc{background:color-mix(in srgb,var(--made) 30%,transparent)}table.lw td.lnbar{border-left:2px solid var(--accent)}
 table.rtab th,table.rtab td{padding:8px 9px;white-space:nowrap}
@@ -693,6 +694,30 @@ function rbAt(x,kind){var bk=rBk();if(!bk||!x)return undefined;var s=typeof kind
   if(!s){if("act" in x)return undefined;var by=typeof kind==="number"?(oddsFor(x.g).byr[norm(x.n)]||{})[kind]:null;return by&&by[bk]!=null?{a:by[bk],bk:bk}:null}
   if(!s.by)return undefined;return s.by[bk]!=null?{a:s.by[bk],bk:bk}:null}
 function bkShort(b){return b==="DraftKings"?"DK":b==="FanDuel"?"FD":b==="BetMGM"?"MGM":b==="BetRivers"?"BR":b==="Caesars"?"CZR":b}
+/* "Tgt ↓": his share of the team's targets over his last three games against the games before (up to seven, last season included).
+   A flag for a manual look, not part of the model: on 2025-26 a shorter memory in the model itself did not help consistently. */
+var _td={};function tgtDrop(gid,id){var k=gid+"|"+id;if(k in _td)return _td[k];var r=rowOf(k),L=r&&r.log||[],out=null;
+  if(L.length>=6){var a=L.slice(-3),b=L.slice(-10,-3),sum=function(x,i){var t=0;x.forEach(function(l){t+=+l[i]||0});return t};
+    if(L[0].length>14&&sum(b,14)>0&&sum(a,14)>0){var s3=sum(a,4)/sum(a,14),s0=sum(b,4)/sum(b,14);if(s0>=0.10&&s3<=0.75*s0&&s0-s3>=0.03)out={s:1,a:s3,b:s0,t3:sum(a,4)/3,t0:sum(b,4)/b.length}}
+    else{var t3=sum(a,4)/3,t0=sum(b,4)/b.length;if(t0>=3&&t3<=0.7*t0&&t0-t3>=1.5)out={s:0,t3:t3,t0:t0}}}
+  return _td[k]=out}
+function tdTag(gid,id){var z=tgtDrop(gid,id);if(!z)return"";return ' <span class="tag hot" title="'+(z.s?"Target share last 3 games "+pct(z.a)+" (was "+pct(z.b)+"), ":"")+"targets a game last 3: "+f2(z.t3,1)+" (was "+f2(z.t0,1)+'). Check his role before betting">Tgt ↓</span>'}
+/* players left out of the parlay ideas (this browser only); the ideas are rebuilt without them */
+function rzEx(){var v=ls("atd-rzex");return Array.isArray(v)?v:[]}
+function rzOut(n){var k=norm(n);return rzEx().some(function(x){return norm(x)===k})}
+function parlIdeas(wk,rows,st,books,ex){var B=D.recb||{},R=B.rule||{},exk={};(ex||[]).forEach(function(n){exk[norm(n)]=1});
+  var kp=(B.parl||[]).filter(function(i){return i.wk===wk&&i.legs.some(function(l){return st[l.g]})});
+  var bks=books;if(!bks){var bs={};rows.forEach(function(x){["ov","un"].forEach(function(sd){var s=x[sd];if(s&&s.by)Object.keys(s.by).forEach(function(b){bs[b]=1})});Object.keys(x.lad||{}).forEach(function(k){var v=x.lad[k];if(v.by)Object.keys(v.by).forEach(function(b){bs[b]=1})})});bks=Object.keys(bs)}
+  var best={};bks.forEach(function(bk){var pool=[];
+    rows.forEach(function(x){if(x.check||x.line==null||exk[norm(x.n)])return;
+      ["ov","un"].forEach(function(sd){var s=x[sd];if(!s||!s.by||s.by[bk]==null||s.p<(R.pm||0.45))return;var a=s.by[bk],m=s.p-1/dec(a);if(m>=(R.m||0.01)&&m<=(R.mx||0.04))pool.push({g:x.g,id:x.id,n:x.n,t:x.t,lab:(sd==="ov"?"Over ":"Under ")+x.line,bk:bk,a:a,p:s.p,e:s.p*dec(a)-1})});
+      Object.keys(x.lad||{}).forEach(function(k_){var k=+k_,v=x.lad[k_];if(k<x.kk+1||k>x.kk+2||v.p<(R.pr||0.3)||!v.by||v.by[bk]==null)return;var a=v.by[bk],e=v.p*dec(a)-1;if(e>=(R.plo||0.1)&&e<=(R.phi_||0.4))pool.push({g:x.g,id:x.id,n:x.n,t:x.t,lab:k+"+ catches",bk:bk,a:a,p:v.p,e:e})})});
+    pool.sort(function(a,b){return b.e-a.e});pool=pool.slice(0,12);
+    [2,3].forEach(function(size){var go=function(st0,acc){if(acc.length===size){var gs={},ids={};if(acc.some(function(l){if(gs[l.g]||ids[l.id])return true;gs[l.g]=ids[l.id]=1}))return;
+        var q=1,d_=1;acc.forEach(function(l){q*=l.p;d_*=dec(l.a)});var ev=q*d_-1;if(!best[size]||ev>best[size].ev)best[size]={bk:bk,legs:acc.slice(),q:q,d:d_,ev:ev};return}
+        for(var i=st0;i<pool.length;i++){acc.push(pool[i]);go(i+1,acc);acc.pop()}};go(0,[])})});
+  var parl=[];[2,3].forEach(function(size){var b_=best[size];if(!b_||kp.some(function(i){return i.legs.length===size}))return;var kel=Math.max(b_.ev,0)/(b_.d-1);b_.u=Math.round(Math.min(0.5,Math.max(0.1,kel*100/8))*20)/20;b_.wk=wk;b_.lk=0;parl.push(b_)});
+  return kp.concat(parl)}
 /* the board at one book: picks, ladders and parlays re-chosen with the same rules (build_data.py rec_board) using only that book's prices.
    Games already started keep the picks that locked at kickoff. The Tracker and net units always count the best-price board. */
 function bookBoard(wk,mode){var bk=rBk(),B=D.recb||{},R=B.rule||{};if(!bk||mode!=="live")return null;
@@ -714,22 +739,16 @@ function bookBoard(wk,mode){var bk=rBk(),B=D.recb||{},R=B.rule||{};if(!bk||mode!
     var w=good.map(function(g_){return g_[3]*g_[4]}),tot=w.reduce(function(a,b){return a+b},0),te=0;good.forEach(function(g_,i){g_.push(tot>0?Math.round(w[i]/tot*100)/100:Math.round(100/good.length)/100);te+=g_[4]});
     lc.push({g:x.g,id:x.id,n:x.n,t:x.t,o:x.o,pos:x.pos,line:x.line,mu:x.mu,mub:x.mub,te:te,rungs:good,wk:wk})});
   lc.sort(function(a,b){return b.te-a.te});var lad=fl.concat(lc.filter(function(c){return !fl.some(function(f){return f.id===c.id})}).slice(0,Math.max(0,nP-fl.length)));
-  // parlay ideas: legs that beat this book's price, one a player, different games; the best 2- and 3-leg idea
-  var kp=(B.parl||[]).filter(function(i){return i.wk===wk&&i.legs.some(function(l){return st[l.g]})}),pool=[];
-  rows.forEach(function(x){if(x.check||x.line==null)return;
-    ["ov","un"].forEach(function(sd){var s=x[sd];if(!s||!s.by||s.by[bk]==null||s.p<(R.pm||0.45))return;var a=s.by[bk],m=s.p-1/dec(a);if(m>=(R.m||0.01)&&m<=(R.mx||0.04))pool.push({g:x.g,id:x.id,n:x.n,t:x.t,lab:(sd==="ov"?"Over ":"Under ")+x.line,bk:bk,a:a,p:s.p,e:s.p*dec(a)-1})});
-    Object.keys(x.lad||{}).forEach(function(k_){var k=+k_,v=x.lad[k_];if(k<x.kk+1||k>x.kk+2||v.p<(R.pr||0.3)||!v.by||v.by[bk]==null)return;var a=v.by[bk],e=v.p*dec(a)-1;if(e>=(R.plo||0.1)&&e<=(R.phi_||0.4))pool.push({g:x.g,id:x.id,n:x.n,t:x.t,lab:k+"+ catches",bk:bk,a:a,p:v.p,e:e})})});
-  pool.sort(function(a,b){return b.e-a.e});pool=pool.slice(0,12);var parl=[];
-  [2,3].forEach(function(size){if(kp.some(function(i){return i.legs.length===size}))return;var best=null,idx=[],go=function(st0,acc){if(acc.length===size){var gs={},ids={};if(acc.some(function(l){if(gs[l.g]||ids[l.id])return true;gs[l.g]=ids[l.id]=1}))return;
-      var q=1,d_=1;acc.forEach(function(l){q*=l.p;d_*=dec(l.a)});var ev=q*d_-1;if(!best||ev>best.ev)best={bk:bk,legs:acc.slice(),q:q,d:d_,ev:ev};return}
-      for(var i=st0;i<pool.length;i++){acc.push(pool[i]);go(i+1,acc);acc.pop()}};go(0,[]);
-    if(best){var kel=Math.max(best.ev,0)/(best.d-1);best.u=Math.round(Math.min(0.5,Math.max(0.1,kel*100/8))*20)/20;best.wk=wk;best.lk=0;parl.push(best)}});
-  return{picks:picks,lad:lad,parl:kp.concat(parl)}}
+  var parl=parlIdeas(wk,rows,st,[bk],rzEx());
+  return{picks:picks,lad:lad,parl:parl}}
 /* Parlay ideas → My bets: one parlay bet at the idea's book, price and suggested stake, graded leg by leg on catches */
 var RZ_ON=[];function rzSig(legs){return legs.map(function(l){return l.gid||l.g}).concat(legs.map(function(l){return norm(l.n)+"|"+(l.mk||"")+"|"+(l.k!=null?l.k:"")})).join(";")}
 function rzLegs(i){return i.legs.map(function(l){var x=recRow(l.g,l.id)||{},g=gm(l.g),m=/^(Over|Under) (.+)$/.exec(l.lab),mk=m?(m[1]==="Over"?"ro":"ru"):"r",k=m?+m[2]:parseInt(l.lab,10);
   return{gid:l.g,pid:l.id,n:l.n,t:l.t,o:x.o||"",home:g&&g.h===l.t?1:0,pos:x.pos||"",mk:mk,k:k,odds:l.a,ch:l.p,ko:g?g.ts:((D.kick||{})[l.g]||null)}})}
 function rzLogged(i){var sg=rzSig(rzLegs(i));return BETS.some(function(b){return b.mk==="p"&&b.legs&&rzSig(b.legs)===sg})}
+document.addEventListener("click",function(e){var x=e.target.closest&&e.target.closest("[data-rzx],[data-rzun]");if(!x)return;var L=rzEx();
+  if(x.dataset.rzx){if(!rzOut(x.dataset.rzx))L.push(x.dataset.rzx);say2(x.dataset.rzx+" left out of parlay ideas")}else{L=L.filter(function(n){return norm(n)!==norm(x.dataset.rzun)});say2(x.dataset.rzun+" back in parlay ideas")}
+  ls("atd-rzex",L);render(true)});
 document.addEventListener("click",function(e){var t=e.target.closest&&e.target.closest("[data-addrz]");if(!t)return;var i=RZ_ON[+t.dataset.addrz];if(!i||rzLogged(i))return;
   var L=rzLegs(i).sort(function(a,b){return (a.ko||"")<(b.ko||"")?-1:1});
   BETS.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),mk:"p",gid:L[0].gid,n:L.length+"-leg receptions parlay",t:"",o:"",legs:L,book:i.bk,ch:i.q,odds:d2a(i.d),listed:d2a(i.d),boost:0,units:i.u,settle:"auto",ko:L[0].ko,added:new Date().toISOString()});
@@ -739,6 +758,7 @@ function vRec(){
   if(ws.indexOf(S.rwk)<0)S.rwk=ws.indexOf(S.wk)>=0?S.wk:ws.length?ws[ws.length-1]:S.wk;var wk=S.rwk,mode=WM[String(wk)]||"live";
   var picks=(B.picks||[]).filter(function(p_){return p_.wk===wk}),lads=(B.lad||[]).filter(function(l){return l.wk===wk}),parl=(B.parl||[]).filter(function(i){return i.wk===wk});
   var BB=bookBoard(wk,mode);if(BB){picks=BB.picks;lads=BB.lad;parl=BB.parl}
+  else if(mode==="live"&&rzEx().length){var st_={},now_=Date.now();D.sched.forEach(function(g){if(g.wk===wk)st_[g.gid]=Date.parse(g.ts)<=now_});parl=parlIdeas(wk,(B.rows||[]).filter(function(x){return st_[x.g]===false}),st_,null,rzEx())}
   var tp=recTally(picks,rpRes),tl=recTally(lads,rlRes),tz=recTally(parl,rzRes),U=function(z){return z.n?z.w+" of "+z.n+" · "+uTxt(z.u)+" · "+(z.u>=0?"+":"−")+"$"+Math.abs(z.u*UNIT).toFixed(0):"no results yet"},
     PL=function(z,txt){return '<span class="upill '+(!z.n?"neu":z.u>0.004?"pos":z.u<-0.004?"neg":"neu")+'">'+txt+"</span>"};
   var lrung=0,lhit=0,llive=0;lads.forEach(function(l){var r=rlRes(l);if(!r)return;lrung+=l.rungs.length;lhit+=r.hit;if(r.open)llive++});
@@ -751,7 +771,7 @@ function vRec(){
   else h+='<div class="pcards five">'+picks.map(function(p_){var g=gm(p_.g),r=rpRes(p_),d_=dec(p_.a),st=r&&!r.open?(r.w?"hit":"miss"):"",x=recRow(p_.g,p_.id),row=rowOf(p_.g+"|"+p_.id);
     var L=function(a,b){return '<div class="rp-l"><span>'+a+"</span><b>"+b+"</b></div>"};
     return '<article class="pcard rp '+st+'"><div class="pc-top">'+lg(p_.t)+'<b class="rp-g">'+p_.t+" "+vsGid(p_.g,p_.t,p_.o)+'</b><span class="tag rp-side '+(p_.side==="o"?"ov":"un")+'">'+(p_.side==="o"?"Over ":"Under ")+p_.line+"</span></div>"+
-      '<div class="pc-game"><span class="tag pos">'+p_.pos+"</span>"+(g?esc(g.t):(D.kick||{})[p_.g]?esc(D.kick[p_.g]):"")+(p_.lk?' <span class="tag">Locked</span>':"")+'</div><div class="pc-name">'+(row?'<button class="lnk big" type="button" data-open="'+esc(p_.g+"|"+p_.id)+'">'+esc(p_.n)+"</button>":'<span class="pn">'+esc(p_.n)+"</span>")+"</div>"+
+      '<div class="pc-game"><span class="tag pos">'+p_.pos+"</span>"+(g?esc(g.t):(D.kick||{})[p_.g]?esc(D.kick[p_.g]):"")+(p_.lk?' <span class="tag">Locked</span>':"")+'</div><div class="pc-name">'+(row?'<button class="lnk big" type="button" data-open="'+esc(p_.g+"|"+p_.id)+'">'+esc(p_.n)+"</button>":'<span class="pn">'+esc(p_.n)+"</span>")+"</div>"+(tgtDrop(p_.g,p_.id)?"<div>"+tdTag(p_.g,p_.id)+"</div>":"")+
       (r?'<div><span class="tag '+(r.open?"lv":r.w?"rw":"rl")+'">'+r.n+" rec · "+(r.open?"live":r.w?"won "+uTxt(r.pl):"lost "+uTxt(r.pl))+"</span></div>":"")+
       '<div class="rp-ls">'+L(rBk()&&p_.bk===rBk()?esc(rBk())+" price":"Best price",'<span class="px big2" data-px="'+esc(p_.g+"|"+p_.id)+"|"+(p_.side==="o"?"O":"U")+p_.line+'">'+fmtA(p_.a)+'</span> <span class="o">'+esc(p_.bk)+"</span>")+L("Edge",'<span class="ev '+evCls(p_.e)+'">'+evTxt(p_.e)+"</span>")+(function(){var q=x&&x.line===p_.line&&p_.bk!==rBk()?rbAt(x,p_.side==="o"?"ov":"un"):undefined;if(q===undefined)return"";if(!q)return L("At "+esc(rBk()),'<span class="o">not posted</span>');var dq=dec(q.a),eq=p_.p*dq-1;
       return L("At "+esc(rBk()),'<b class="big2">'+fmtA(q.a)+'</b> <span class="ev '+evCls(eq)+'">'+evTxt(eq)+'</span> <span class="o">'+((p_.p-1/dq)>=0?"+":"−")+Math.abs((p_.p-1/dq)*100).toFixed(1)+" pts</span>")})()+
@@ -765,7 +785,7 @@ function vRec(){
   if(!lads.length)h+='<p class="empty">No ladder candidates this week yet.</p>';
   else{var RG=[2,3,4,5,6,7,8,9,10];h+='<div class="tw"><table class="lad lw"><thead><tr><th>Team</th><th>Player</th><th>Opponent</th><th class="n">xRec</th><th class="n">Line</th>'+RG.map(function(k){return '<th class="n">'+k+"+</th>"}).join("")+'<th class="n">Ladder edge</th><th class="n">Catches</th></tr></thead><tbody>';
     lads.forEach(function(l){var x=recRow(l.g,l.id),pick={};l.rungs.forEach(function(z){pick[z[0]]=z});var res=rlRes(l),g=gm(l.g),ln=l.line!=null?Math.floor(l.line)+1:null;
-      h+="<tr><td>"+tmL(l.t)+'</td><td><span class="tag pos">'+l.pos+'</span> <span class="pn">'+esc(l.n)+'</span></td><td><span class="o">'+vsGid(l.g,l.t,l.o)+'</span></td><td class="n"><b>'+f2(l.mu,1)+'</b></td><td class="n acc">'+(l.line!=null?l.line:"–")+"</td>"+
+      h+="<tr><td>"+tmL(l.t)+'</td><td><span class="tag pos">'+l.pos+'</span> <span class="pn">'+esc(l.n)+"</span>"+tdTag(l.g,l.id)+'</td><td><span class="o">'+vsGid(l.g,l.t,l.o)+'</span></td><td class="n"><b>'+f2(l.mu,1)+'</b></td><td class="n acc">'+(l.line!=null?l.line:"–")+"</td>"+
         RG.map(function(k){var z=pick[k],c=x&&x.lad[k],bar=k===ln?" lnbar":"",hit=res&&res.n!=null&&res.n>=k?" hit":"";
           var q=rbAt(x,k);
           if(z){var za=z[1],ze=z[4];if(q){za=q.a;ze=z[3]*dec(q.a)-1}else if(q===null)return '<td class="n lc'+bar+'"><div class="lbox pk'+hit+'" title="Not posted at '+esc(rBk())+'"><span class="o">not at '+esc(bkShort(rBk()))+'</span><i class="o">best '+fmtA(z[1])+'</i><i class="acc">'+f2(z[5])+"u</i></div></td>";
@@ -777,11 +797,12 @@ function vRec(){
     h+="</tbody></table></div>"}
   h+="</section>";
   // parlay ideas
-  h+='<section class="panel"><div class="phead"><h2>Parlay ideas</h2><div class="filters">'+PL(tz,U(tz))+'<span class="tag">experiment · not in net units</span></div></div>';
+  var ex_=rzEx();h+='<section class="panel"><div class="phead"><h2>Parlay ideas</h2><div class="filters">'+(ex_.length?'<span class="o" style="font-size:12.5px">Left out:</span>'+ex_.map(function(n){return '<button class="tag rzun" type="button" data-rzun="'+esc(n)+'" title="Put '+esc(n)+' back">'+esc(n)+" ×</button>"}).join(""):"")+PL(tz,U(tz))+'<span class="tag" title="Counted in the Tracker\'s Receptions net units at the suggested stakes">experimental</span></div></div>';
   h+='<p class="note">Legs that each beat their own price, one a player and each from a different game, so the book pays the full multiplied price and the legs do not lean on each other. A leg is a main-line over or under with a '+Math.round((rule.pm||.45)*100)+'% or better chance sitting 1 to 4 points above that book\'s break-even, or a ladder rung one or two above the line with '+Math.round((rule.pr||.3)*100)+'% or better and an edge of '+Math.round((rule.plo||.1)*100)+'% to '+Math.round((rule.phi_||.4)*100)+'% there. Each idea is priced at the one book that posts every leg and pays the most. The chance multiplies the legs\' chances; edges compound, and so do misses, so the stake is an eighth of Kelly, 0.1u to 0.5u. The ideas lock when their first game starts.</p>';
+  if(ex_.length&&mode==="live")h+='<p class="note">Rebuilt without the players you left out (× on a leg; click a name above to put him back). The Tracker still counts the original ideas.</p>';
   if(!parl.length)h+='<p class="empty">No parlay ideas this week yet.</p>';
   else h+='<div class="pcards two">'+(RZ_ON=parl).map(function(i,ix){var r=rzRes(i),inB=rzLogged(i);return '<article class="pcard rz"><div class="pc-top"><b>'+i.legs.length+"-leg at "+esc(i.bk)+'</b><b class="big2">'+fmtA(d2a(i.d))+'</b><span class="tag '+(r.st==="won"?"rw":r.st==="lost"?"rl":"")+'">'+(r.st==="open"?(i.lk?"locked":"open"):r.st)+"</span></div>"+
-    i.legs.map(function(l){var c=catches(l.g,l.t,l.n);return '<div class="rz-l"><span class="pn">'+esc(l.n)+'</span> <span class="o">'+l.t+" · "+esc(l.lab)+" "+fmtA(l.a)+" · "+pct(l.p,1)+'</span><b>'+(c.n!=null?c.n:"")+"</b></div>"}).join("")+
+    i.legs.map(function(l){var c=catches(l.g,l.t,l.n);return '<div class="rz-l"><span class="pn">'+esc(l.n)+"</span>"+tdTag(l.g,l.id)+(i.lk?"":'<button class="rzx" type="button" data-rzx="'+esc(l.n)+'" title="Leave '+esc(l.n)+' out of parlay ideas">×</button>')+' <span class="o">'+l.t+" · "+esc(l.lab)+" "+fmtA(l.a)+" · "+pct(l.p,1)+'</span><b>'+(c.n!=null?c.n:"")+"</b></div>"}).join("")+
     '<div class="rz-f">Chance <b>'+pct(i.q,1)+"</b> · Fair <b>"+amer(i.q)+"</b> · Edge <b>"+evTxt(i.ev)+"</b> · Stake <b>"+f2(i.u)+"u</b>"+(r.st!=="open"?" · Result <b>"+uTxt(r.pl)+"</b>":"")+"</div>"+'<div class="rz-add">'+(inB?'<span class="tag rw">In My bets</span>':'<button class="btn" type="button" data-addrz="'+ix+'">Add to My bets · '+f2(i.u)+"u at "+esc(i.bk)+"</button>")+"</div>"+(function(){var bk=rBk();if(!bk||bk===i.bk)return"";var d_=1,miss=0,none=0;
       i.legs.forEach(function(l){var x=recRow(l.g,l.id),m=/^(Over|Under) (.+)$/.exec(l.lab),q=!x?undefined:m?(String(x.line)===m[2]?rbAt(x,m[1]==="Over"?"ov":"un"):null):rbAt(x,parseInt(l.lab,10));if(q===undefined)none=1;else if(!q)miss=1;else d_*=dec(q.a)});
       if(none)return"";if(miss)return '<div class="rz-f o">Not every leg is posted at '+esc(bk)+".</div>";return '<div class="rz-f">At '+esc(bk)+" <b>"+fmtA(d2a(d_))+"</b> · Edge <b>"+evTxt(i.q*d_-1)+"</b></div>"})()+"</article>"}).join("")+"</div>";
@@ -802,7 +823,7 @@ function vRec(){
     rows.forEach(function(x){var r=rowOf(x.g+"|"+x.id),g=gm(x.g),c=catches(x.g,x.t,x.n),sid=x.g+"|"+x.id,l10=r&&r.rl&&x.line!=null?r.rl.filter(function(v){return v>x.line}).length:null,isPick=picks.some(function(p_){return p_.id===x.id&&p_.g===x.g});
       var side=function(s,lab){if(!s)return '<td class="n o">–</td><td class="n o">–</td><td class="n o">–</td>';var q=rbAt(x,lab==="O"?"ov":"un");if(q===null)return '<td class="n k">'+pct(s.p,1)+' <span class="o">'+amer(s.p)+'</span></td><td class="n o" title="Not posted at '+esc(rBk())+'">–</td><td class="n o">–</td>';
         if(q){var eq=s.p*dec(q.a)-1;return '<td class="n k">'+pct(s.p,1)+' <span class="o">'+amer(s.p)+'</span></td><td class="n"><span class="px" data-px="'+esc(sid)+"|"+lab+x.line+'">'+fmtA(q.a)+"</span> "+bkAb(q.bk)+'</td><td class="n"><span class="ev '+evCls(eq)+'">'+evTxt(eq)+"</span></td>"}return '<td class="n k">'+pct(s.p,1)+' <span class="o">'+amer(s.p)+'</span></td><td class="n"><span class="px" data-px="'+esc(sid)+"|"+lab+x.line+'">'+fmtA(s.a)+"</span> "+bkAb(s.bk)+'</td><td class="n"><span class="ev '+evCls(s.e)+'">'+evTxt(s.e)+"</span></td>"};
-      h+="<tr><td>"+tmL(x.t)+'</td><td><span class="tag pos">'+x.pos+"</span> "+(r?'<button class="lnk" type="button" data-open="'+esc(sid)+'">'+esc(x.n)+"</button>":'<span class="pn">'+esc(x.n)+"</span>")+(isPick?' <span class="tag pk">Pick</span>':"")+(x.check?' <span class="tag hot" title="Model more than '+Math.round((rule.gap||.12)*100)+' points from the market: check the news">Check</span>':"")+'</td><td><span class="o">'+vsGid(x.g,x.t,x.o)+'</span></td><td class="n k"><b>'+f2(x.mu,2)+'</b></td><td class="n">'+(c.n!=null?c.n+(c.fin?"":' <span class="o">live</span>'):"–")+'</td><td class="n acc">'+(x.line!=null?x.line:"–")+'</td><td class="n">'+(x.line!=null?((x.mu-x.line>=0?"+":"")+f2(x.mu-x.line)):"–")+"</td>"+
+      h+="<tr><td>"+tmL(x.t)+'</td><td><span class="tag pos">'+x.pos+"</span> "+(r?'<button class="lnk" type="button" data-open="'+esc(sid)+'">'+esc(x.n)+"</button>":'<span class="pn">'+esc(x.n)+"</span>")+(isPick?' <span class="tag pk">Pick</span>':"")+tdTag(x.g,x.id)+(x.check?' <span class="tag hot" title="Model more than '+Math.round((rule.gap||.12)*100)+' points from the market: check the news">Check</span>':"")+'</td><td><span class="o">'+vsGid(x.g,x.t,x.o)+'</span></td><td class="n k"><b>'+f2(x.mu,2)+'</b></td><td class="n">'+(c.n!=null?c.n+(c.fin?"":' <span class="o">live</span>'):"–")+'</td><td class="n acc">'+(x.line!=null?x.line:"–")+'</td><td class="n">'+(x.line!=null?((x.mu-x.line>=0?"+":"")+f2(x.mu-x.line)):"–")+"</td>"+
         side(x.ov,"O")+side(x.un,"U")+rcell(rungAt(x,1),sid)+rcell(rungAt(x,2),sid)+'<td class="n">'+(x.mk!=null?pct(x.mk,1):"–")+'</td><td class="n">'+(x.pm!=null?pct(x.pm,1):"–")+'</td><td class="n">'+(l10!=null?l10+" of "+r.rl.length:"–")+'</td><td class="n">'+(r&&r.rl&&r.rl.length?f2(r.rl.reduce(function(a,b){return a+b},0)/r.rl.length,1):"–")+'</td><td class="n">'+(r?f2(r.rg,1):"–")+'</td><td class="n">'+(r?f2(r.tgg,1):"–")+'</td><td class="n">'+(r&&r.ctr!=null?pct(r.ctr):"–")+'</td><td class="n">'+(r?f2(r.tt,1):"–")+'</td><td class="n">'+(r?f2(r.of,2)+"×":"–")+'</td><td class="n">'+(r?pct(r.sn):"–")+"</td></tr>"});
     h+="</tbody></table></div>"}
   h+="</section>";
@@ -836,7 +857,7 @@ function vLadders(){
   var used=RUNGS.filter(function(k){return rows.some(function(x){return x.cells[k].a!=null})});if(!used.length)used=[3,4,5,6,7,8];
   h+='<div class="tw"><table class="lad lw"><thead><tr><th>Team</th><th>Player</th><th>Opponent</th><th class="n" title="Expected catches (model) · catches and targets a game lately">Proj</th><th class="n" title="Catches the book\'s own ladder implies">Book</th><th class="n" title="His main over/under line">Line</th>'+used.map(function(k){return '<th class="n">'+k+"+</th>"}).join("")+"</tr></thead><tbody>";
   rows.forEach(function(x){var r=x.r,id=r.g+"|"+r.id,rx=recRow(r.g,r.id),line=rx?rx.line:null,ln=line!=null?Math.floor(line)+1:null,cn=catches(r.g,r.t,r.n).n;
-    h+="<tr><td>"+tmL(r.t)+'</td><td><span class="tag pos">'+r.pos+'</span> <button class="lnk" type="button" data-open="'+esc(id)+'">'+esc(r.n)+"</button>"+injTag(r)+(rx&&rx.check?' <span class="tag hot" title="Model more than '+Math.round((((D.recb||{}).rule||{}).gap||.12)*100)+' points from the market on his main line: left out of picks, Ladder Watch and parlays. Check the news">Check</span>':"")+'</td><td><span class="o">'+vsTxt(r)+'</span></td><td class="n"><b>'+f2(r.rm,1)+'</b> <span class="o sm2">'+f2(r.rg,1)+" / "+f2(r.tgg,1)+'</span></td><td class="n o">'+(x.im?f2(x.im,1):"–")+'</td><td class="n acc">'+(line!=null?line:"–")+"</td>"+
+    h+="<tr><td>"+tmL(r.t)+'</td><td><span class="tag pos">'+r.pos+'</span> <button class="lnk" type="button" data-open="'+esc(id)+'">'+esc(r.n)+"</button>"+injTag(r)+tdTag(r.g,r.id)+(rx&&rx.check?' <span class="tag hot" title="Model more than '+Math.round((((D.recb||{}).rule||{}).gap||.12)*100)+' points from the market on his main line: left out of picks, Ladder Watch and parlays. Check the news">Check</span>':"")+'</td><td><span class="o">'+vsTxt(r)+'</span></td><td class="n"><b>'+f2(r.rm,1)+'</b> <span class="o sm2">'+f2(r.rg,1)+" / "+f2(r.tgg,1)+'</span></td><td class="n o">'+(x.im?f2(x.im,1):"–")+'</td><td class="n acc">'+(line!=null?line:"–")+"</td>"+
       used.map(function(k){var c=x.cells[k],bar=k===ln?" lnbar":"",hit=cn!=null&&cn>=k?" hit":"";if(c.a==null)return '<td class="n lc'+bar+'" title="Fair '+amer(c.p)+" ("+pct(c.p,1)+')"><div class="lbox plain'+hit+'">'+(c.p!=null&&c.p>=0.02&&c.p<=0.98?'<span class="o">'+pct(c.p)+'</span><i class="o">'+amer(c.p)+"</i>":"")+"</div></td>";
         var hot=c.e>0.40,both=!hot&&c.e>=0.05&&c.se!=null&&c.se>=0.05;
         return '<td class="n lc'+bar+'" title="'+esc(k+"+ receptions · model chance "+pct(c.p,1)+" (fair "+amer(c.p)+") · "+(rBk()?esc(rBk()):"best")+" "+fmtA(c.a)+" at "+c.bk+" · "+c.n+" book"+(c.n===1?"":"s")+(c.se!=null?" · shape check: the book's ladder implies "+f2(x.im,1)+" catches, where this rung is worth "+evTxt(c.se):""))+'"><div class="lbox'+(both?" pk":"")+(hot?" hot":"")+hit+'"'+(hot?' title="Edge above +40%: on the 2026 back-check edges this big lost money, so treat it as a likely model miss"':"")+'><span class="px" data-px="'+esc(id)+"|r"+k+'">'+fmtA(c.a)+'</span><i class="ev '+evCls(c.e)+'">'+evTxt(c.e)+"</i></div></td>"}).join("")+"</tr>"});
