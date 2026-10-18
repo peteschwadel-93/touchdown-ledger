@@ -332,22 +332,38 @@ def predict(w, X):
 REC_POS = ("WR", "TE", "RB")
 
 
-def rec_design(s, lgt):
+def rec_design(s, lgt, vac=False):
     """Inputs for expected catches: recent catches and targets a game, snap share, the team's implied total, position, the team's
     recent targets a game and how many targets the opponent has been facing (a pass funnel). Tested on 2025: matchups by man/zone
-    coverage and the spread added almost nothing, so they are left out."""
+    coverage and the spread added almost nothing, so they are left out. vac=True adds the targets left open by teammates who are not
+    dressing: it makes the catch numbers more accurate, but on the 2026 back-check the extra edges it found were in spots the books had
+    already priced (injury news moves lines) and lost, so the board keeps the plain model and only its weight is used, for the Q tm tag."""
     n1 = np.clip(s.n.to_numpy(float), 1, None)
-    return np.c_[np.ones(len(s)), np.log(s.p_rec.to_numpy() / n1 + 0.3), np.log(s.p_tg.to_numpy() / n1 + 0.3), np.log(s.imp.fillna(22).to_numpy() / 22),
-                 (s.pos == "TE").to_numpy(float), (s.pos == "RB").to_numpy(float), np.log(np.clip(s.snw.to_numpy(float), 0.05, 1)),
-                 np.log((s.o_ttg.to_numpy() + 4 * lgt) / (s.o_n.to_numpy() + 4) / lgt), np.log((s.d_ttg.to_numpy() + 4 * lgt) / (s.d_n.to_numpy() + 4) / lgt)]
+    cols = [np.ones(len(s)), np.log(s.p_rec.to_numpy() / n1 + 0.3), np.log(s.p_tg.to_numpy() / n1 + 0.3), np.log(s.imp.fillna(22).to_numpy() / 22),
+            (s.pos == "TE").to_numpy(float), (s.pos == "RB").to_numpy(float), np.log(np.clip(s.snw.to_numpy(float), 0.05, 1)),
+            np.log((s.o_ttg.to_numpy() + 4 * lgt) / (s.o_n.to_numpy() + 4) / lgt), np.log((s.d_ttg.to_numpy() + 4 * lgt) / (s.d_n.to_numpy() + 4) / lgt)]
+    if vac:
+        cols.append(s.vacr.to_numpy(float))
+    return np.column_stack(cols)
 
 
-def fit_rec(s, season, lgt):
+def add_vac(s, lgt):
+    """Targets left open by teammates who are not dressing: the targets a game the team usually throws against the targets a game the
+    players actually dressing usually get (log ratio, capped). History uses who played; this week uses the roster less players listed
+    Out or Doubtful. On 2025 and 2026 games the model never saw this cut the receptions error by about 1.5%, and removed most of the
+    half-catch-a-game shortfall when a regular receiver was missing."""
+    rate = s.p_tg / s.n.clip(lower=1)
+    dressed = rate.groupby([s.game_id, s.posteam]).transform("sum")
+    team = (s.o_ttg + 4 * lgt) / (s.o_n + 4)
+    return s.assign(vacr=np.log(np.clip(team / dressed.clip(lower=5), 0.6, 2.0)), vopen=team - dressed)
+
+
+def fit_rec(s, season, lgt, vac=False):
     """Poisson regression for expected catches (recent seasons weigh more), and the spread around it: catches vary about 1.4 times
     as much as a Poisson count would, so ladder chances use a negative binomial with that variance (it matched every rung of the
     2025-26 back-check to within a point)."""
     z = s[s.pos.isin(REC_POS) & (s.n >= 2) & (s.p_tg / s.n.clip(lower=1) >= 1.5)]
-    X, y, wt = rec_design(z, lgt), z.rec.to_numpy(float), recency(z, season)
+    X, y, wt = rec_design(z, lgt, vac), z.rec.to_numpy(float), recency(z, season)
     w = np.zeros(X.shape[1]); w[0] = np.log(max(y.mean(), 0.5))
     for _ in range(60):
         mu = np.exp(X @ w)
@@ -446,8 +462,10 @@ def make(season=None, old=None):
     model["w"] = [r3(x, 4) for x in w]
     # receptions: expected catches for the ladders, fitted on everything; this season graded with a fit that never saw it
     lgt = float(d.groupby(["game_id", "posteam"]).ttg.first().mean())
+    s = add_vac(s, lgt)
     wr, phi = fit_rec(s, season, lgt)
-    model["rec"] = {"w": [r3(x, 4) for x in wr], "phi": r3(phi), "lgt": r3(lgt, 2)}
+    wv, _ = fit_rec(s, season, lgt, vac=True)        # only its open-targets weight is used, by the page's Q tm tag
+    model["rec"] = {"w": [r3(x, 4) for x in wr], "phi": r3(phi), "lgt": r3(lgt, 2), "vw": r3(wv[-1], 4)}
     rtrk = []
     if (s.season < season).sum() > 2000:
         wr0, _ = fit_rec(s[s.season < season], season, lgt)
@@ -538,6 +556,7 @@ def make(season=None, old=None):
         u["p"] = predict(w, design(u))
         u["rate"] = -np.log(1 - u.p)
         u["pf"] = u.rate / u.groupby("game_id").rate.transform("sum") * fcov
+        u = add_vac(u, lgt)
         u["rm"] = np.where(u.pos.isin(REC_POS), np.exp(rec_design(u, lgt) @ wr), np.nan)
         logs, rlog = {}, {}
         for pid, x in d[d.pid.isin(set(u.pid))].groupby("pid", sort=False):
@@ -555,7 +574,7 @@ def make(season=None, old=None):
                           "rz": r3((r.p_rzc + r.p_rzt) / n1, 2), "log": logs.get(r.pid, []),
                           **({"rm": r3(r.rm, 2), "rg": r3(r.p_rec / n1, 1), "tgg": r3(r.p_tg / n1, 1), "rl": rlog.get(r.pid, []),
                               "ctr": r3(r.p_rec / r.p_tg, 2) if r.p_tg > 0 else None, "tt": r3((r.o_ttg + 4 * lgt) / (r.o_n + 4), 1),
-                              "of": r3((r.d_ttg + 4 * lgt) / (r.d_n + 4) / lgt, 2)} if r.rm == r.rm else {})})
+                              "of": r3((r.d_ttg + 4 * lgt) / (r.d_n + 4) / lgt, 2), "vo": r3(r.vopen, 1)} if r.rm == r.rm else {})})
     # ---- research tables
     def usage(x):
         gp = x.groupby("pid").agg(n=("name", "last"), t=("posteam", "last"), pos=("pos", "last"), gp=("game_id", "nunique"), snp=("snp", "mean"),
