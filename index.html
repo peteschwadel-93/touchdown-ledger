@@ -717,7 +717,7 @@ function tdTag1(gid,id){var z=tgtDrop(gid,id);if(!z)return"";return ' <span clas
 function rzEx(){var v=ls("atd-rzex");return Array.isArray(v)?v:[]}
 function rzOut(n){var k=norm(n);return rzEx().some(function(x){return norm(x)===k})}
 function parlIdeas(wk,rows,st,books,ex){var B=D.recb||{},R=B.rule||{},exk={};(ex||[]).forEach(function(n){exk[norm(n)]=1});
-  var kp=(B.parl||[]).filter(function(i){return i.wk===wk&&i.legs.some(function(l){return st[l.g]})});
+  var kp=(B.parl||[]).filter(function(i){return i.wk===wk&&i.legs.some(function(l){return st[l.g]!==false})});
   var bks=books;if(!bks){var bs={};rows.forEach(function(x){["ov","un"].forEach(function(sd){var s=x[sd];if(s&&s.by)Object.keys(s.by).forEach(function(b){bs[b]=1})});Object.keys(x.lad||{}).forEach(function(k){var v=x.lad[k];if(v.by)Object.keys(v.by).forEach(function(b){bs[b]=1})})});bks=Object.keys(bs)}
   var best={};bks.forEach(function(bk){var pool=[];
     rows.forEach(function(x){if(x.check||x.line==null||exk[norm(x.n)])return;
@@ -734,7 +734,7 @@ function parlIdeas(wk,rows,st,books,ex){var B=D.recb||{},R=B.rule||{},exk={};(ex
 function bookBoard(wk,mode){var bk=rBk(),B=D.recb||{},R=B.rule||{};if(!bk||mode!=="live")return null;
   var gw=D.sched.filter(function(g){return g.wk===wk}),now=Date.now(),st={};gw.forEach(function(g){st[g.gid]=Date.parse(g.ts)<=now});
   var rows=(B.rows||[]).filter(function(x){return st[x.g]===false}),pos=R.pos||["TE","RB"],nP=Math.min(5,Math.max(1,Math.ceil(gw.length/3)));
-  var keep=function(list){return (list||[]).filter(function(x){return x.wk===wk&&st[x.g]})};
+  var keep=function(list){return (list||[]).filter(function(x){return x.wk===wk&&st[x.g]!==false})};   // started, or finished and gone from the schedule
   // picks
   var fp=keep(B.picks),cands=[];
   rows.forEach(function(x){if(x.line==null||x.check||(x.books||0)<(R.books||3)||pos.indexOf(x.pos)<0)return;

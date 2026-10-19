@@ -916,7 +916,7 @@ def rec_board(sched, picks, store, phi, season, rtrk=None):
             items.append({"g": x[2], "id": "x:" + norm_name(x[3]), "n": x[3], "t": x[4], "o": x[5], "pos": x[6], "rm": x[7], "_past": 1})
     pastmode = {}
     for wk, gids in past.items():
-        live = any((store.get(g_) or {}).get("rxp") is not None for g_ in gids)
+        live = any((store.get(g_) or {}).get("rxp") is not None or (store.get(g_) or {}).get("rxl") is not None for g_ in gids)
         pastmode[wk] = "frozen" if live else "retro"
         for g_ in gids:
             started[g_] = live
@@ -979,7 +979,8 @@ def rec_board(sched, picks, store, phi, season, rtrk=None):
     byg = {}
     for x in rows:
         byg.setdefault(x["g"], []).append(x)
-    allw = [(wk, [g for g in sched if g["wk"] == wk], "live") for wk in weeks] + [(wk, [{"gid": g_} for g_ in sorted(gids)], pastmode[wk]) for wk, gids in sorted(past.items()) if wk not in weeks]
+    # a live week keeps its games that already finished and left the schedule (Sunday's games on a Monday), with their locked picks
+    allw = [(wk, [g for g in sched if g["wk"] == wk] + [{"gid": g_} for g_ in sorted(past.get(wk, ())) if g_ not in games], "live") for wk in weeks] + [(wk, [{"gid": g_} for g_ in sorted(gids)], pastmode[wk]) for wk, gids in sorted(past.items()) if wk not in weeks]
     out["weeks"] = {str(wk): mode for wk, _, mode in allw}
     for wk, gw, mode in allw:
         n_pick = min(5, max(1, math.ceil(len(gw) / 3)))
