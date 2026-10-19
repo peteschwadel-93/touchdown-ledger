@@ -220,6 +220,7 @@ table[data-stick] .stk-end{box-shadow:inset -1px 0 0 var(--line),6px 0 8px -6px 
 @media(max-width:520px){.pcards.five{grid-template-columns:minmax(0,1fr)}}.rz-l{display:flex;gap:8px;align-items:baseline;font-size:13.5px}.rz-l b{margin-left:auto}.rz-f{border-top:1px solid var(--line);padding-top:8px;font-size:13px;color:var(--soft)}
 .tag.qt{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
 .rzx{border:0;background:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 4px;line-height:1}.rzx:hover{color:var(--miss)}button.tag.rzun{cursor:pointer;margin-left:4px}
+.dfl{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}.dfc{gap:8px}.dfc .pc-top{gap:8px;align-items:baseline}table.dft td{padding:4px 6px;font-size:13px}table.dft{width:100%}
 .rz-add{display:flex;justify-content:flex-end;margin-top:4px}.rz-add .btn{padding:7px 14px;font-size:12.5px}
 table.lw td.lc.pk{background:color-mix(in srgb,var(--made) 12%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--made) 60%,transparent);border-radius:8px}table.lw td.lc.hitc{background:color-mix(in srgb,var(--made) 30%,transparent)}table.lw td.lnbar{border-left:2px solid var(--accent)}
 table.rtab th,table.rtab td{padding:8px 9px;white-space:nowrap}
@@ -260,7 +261,7 @@ table.lw td.lc{padding:6px 5px}table.lw td.lc.pk,table.lw td.lc.hitc{background:
       <button role="tab" data-tab="games">Games</button>
       <button role="tab" data-tab="feed">TD Feed</button>
       <button role="tab" data-tab="movers">Movers</button>
-      <button role="tab" data-tab="rec">Receptions</button>
+      <button role="tab" data-tab="rec">Receptions</button><button role="tab" data-tab="dfs">DFS</button>
       <button role="tab" data-tab="players">Players</button>
       <button role="tab" data-tab="teams">Teams</button>
       <button role="tab" data-tab="tracker">Tracker</button>
@@ -1159,6 +1160,112 @@ function vBets(){keepCloses();
       '<span class="tag '+(x.res.st==="won"?"rw":x.res.st==="lost"?"rl":"")+'">'+esc(x.res.lab)+'</span></td><td class="n"><b class="'+(x.pl==null?"":x.pl>=0?"pos":"neg")+'">'+(x.pl==null?"–":uTxt(x.pl))+'</b></td><td><select data-bet="'+b.id+'" data-f="settle" aria-label="Settle">'+[["auto","Auto"],["won","Won"],["lost","Lost"],["void","Void"]].map(function(o){return '<option value="'+o[0]+'"'+(b.settle===o[0]?" selected":"")+">"+o[1]+"</option>"}).join("")+'</select></td><td><button class="del" type="button" data-del="'+b.id+'" aria-label="Delete bet">×</button></td><td class="wkc">'+wtxt+"</td></tr>"});
   return h+"</tbody></table></div></section>"}
 
+/* ---------- DFS: FanDuel tournament lineups ---------- */
+/* Projections come from build_data.py (fd_proj / fd_dst): FanDuel half-PPR points from the touchdown model, the receptions model and each
+   player's recent yards; QBs lean on their own recent scoring. Salaries come from the player list FanDuel lets you download from any contest
+   lobby. The optimizer is an integer program (javascript-lp-solver, loaded on first use): 9 spots, $60,000, at most 4 from a team. */
+var DF=(function(){var v=ls("atd-dfs");return v&&typeof v==="object"?v:{}})();["lock","ex"].forEach(function(k){if(!DF[k]||typeof DF[k]!=="object")DF[k]={}});
+var DFD={n:5,up:0.6,stack:2,bring:1,exp:60,uniq:2,rnd:15,pos:"all",q:"",sort:[6,-1]};Object.keys(DFD).forEach(function(k){if(DF[k]==null)DF[k]=DFD[k]});
+var DFL=null,DFMSG="";
+function dfSave(){try{localStorage.setItem("atd-dfs",JSON.stringify(DF))}catch(e){DFMSG="Your browser would not keep the player list; it will need uploading again next visit."}}
+var FDTEAM={JAC:"JAX",LAR:"LA",WSH:"WAS",LVR:"LV",OAK:"LV",SD:"LAC",STL:"LA",ARZ:"ARI",KCC:"KC",GBP:"GB",NEP:"NE",NOS:"NO",SFO:"SF",TBB:"TB"};
+function fdTeam(t){t=String(t||"").toUpperCase().trim();return FDTEAM[t]||t}
+function csvRows(txt){var out=[],row=[],f="",q=false;for(var i=0;i<txt.length;i++){var c=txt[i];if(q){if(c==='"'){if(txt[i+1]==='"'){f+='"';i++}else q=false}else f+=c}
+  else if(c==='"')q=true;else if(c===","){row.push(f);f=""}else if(c==="\n"||c==="\r"){if(c==="\r"&&txt[i+1]==="\n")i++;row.push(f);f="";if(row.length>1||row[0]!=="")out.push(row);row=[]}else f+=c}
+  if(f!==""||row.length){row.push(f);out.push(row)}return out}
+var _dfp=null,_dfk=null;
+function dfPool(){var key=(DF.csv||"").length+"|"+D.built;if(_dfp&&_dfk===key)return _dfp;_dfk=key;
+  var res={players:[],miss:[],games:{},err:""};_dfp=res;if(!DF.csv)return res;
+  var R=csvRows(DF.csv);if(R.length<2){res.err="That file has no players in it.";return res}
+  var H=R[0].map(function(h){return h.trim().toLowerCase()}),ix=function(n){return H.indexOf(n)};
+  var c={id:ix("id"),pos:ix("position"),fn:ix("first name"),nick:ix("nickname"),ln:ix("last name"),fp:ix("fppg"),sal:ix("salary"),game:ix("game"),team:ix("team"),opp:ix("opponent"),inj:ix("injury indicator"),injd:ix("injury details")};
+  if(c.id<0||c.pos<0||c.sal<0||c.team<0){res.err="That does not look like a FanDuel player list (it needs Id, Position, Salary and Team columns). In FanDuel, open any NFL classic contest and use Download players list.";return res}
+  var by={},byLast={};D.picks.forEach(function(p){if(!p.fd)return;var g=gm(p.g);if(!g)return;var k=norm(p.n)+"|"+p.t;(by[k]=by[k]||[]).push(p);var ln=norm(p.n).split(" ").pop()+"|"+p.t+"|"+p.pos;(byLast[ln]=byLast[ln]||[]).push(p)});
+  R.slice(1).forEach(function(r){if(r.length<H.length-2)return;var pos=String(r[c.pos]||"").trim().toUpperCase();if(pos==="DST"||pos==="DEF")pos="D";if(["QB","RB","WR","TE","D"].indexOf(pos)<0)return;
+    var t=fdTeam(r[c.team]),o=fdTeam(r[c.opp]),nm=((c.nick>=0&&r[c.nick]?r[c.nick]:r[c.fn])+" "+(r[c.ln]||"")).trim(),x={id:r[c.id],pos:pos,n:nm,t:t,o:o,sal:+r[c.sal]||0,fppg:c.fp>=0?+r[c.fp]:null,inj:c.inj>=0?String(r[c.inj]||"").trim():"",injd:c.injd>=0?r[c.injd]:""};
+    res.games[[t,o].sort().join("|")]=1;
+    if(pos==="D"){var dd=null;Object.keys(D.dst||{}).forEach(function(g){var G=gm(g),z=D.dst[g][t];if(z&&G&&(G.a===o||G.h===o)&&(!dd||Date.parse(G.ts)<Date.parse(dd.g.ts)))dd={g:G,v:z}});
+      if(!dd){res.miss.push(x);return}x.g=dd.g.gid;x.mu=dd.v[0];x.sd=dd.v[1];x.ts=dd.g.ts;res.players.push(x);return}
+    var cand=(by[norm(nm)+"|"+t]||by[norm((c.fn>=0?r[c.fn]:"")+" "+(r[c.ln]||""))+"|"+t]||[]).filter(function(p){return p.o===o});
+    if(!cand.length){var l=byLast[norm(r[c.ln]||"").split(" ").pop()+"|"+t+"|"+pos]||[];l=l.filter(function(p){return p.o===o});if(l.length===1)cand=l}
+    if(!cand.length){res.miss.push(x);return}var p=cand[0],G=gm(p.g);x.r=p;x.g=p.g;x.mu=p.fd[0];x.sd=p.fd[1];x.ts=G?G.ts:null;res.players.push(x)});
+  return res}
+function dfOut(x){var st=x.ts&&Date.now()>=Date.parse(x.ts);if(DF.lock[x.id])return false;return !!(DF.ex[x.id]||st||/^(O|IR|D|NA)$/i.test(x.inj))}
+function dfCeil(x){return x.mu+1.2816*x.sd}
+var _lpq=null;function needLP(cb){if(window.solver)return cb();if(_lpq){_lpq.push(cb);return}_lpq=[cb];var s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/javascript-lp-solver@0.4.24/prod/solver.js";
+  s.onload=function(){var q=_lpq;_lpq=null;q.forEach(function(f){f()})};s.onerror=function(){_lpq=null;DFMSG="The optimizer library did not load. Check your connection and try again.";render(true)};document.head.appendChild(s)}
+function gauss(){var u=Math.random()||1e-9,v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+function dfBuild(){var pool=dfPool(),P=pool.players.filter(function(x){return !dfOut(x)&&x.sal>0});if(!P.length){DFMSG="No players to build with.";return}
+  var N=Math.max(1,Math.min(20,Math.round(+DF.n||1))),cap=Math.max(1,Math.ceil(N*(+DF.exp||100)/100)),use={},L=[],fail=0;
+  for(var k=0;k<N;k++){var m={optimize:"pts",opType:"max",constraints:{sal:{max:60000},QB:{equal:1},RB:{min:2,max:3},WR:{min:3,max:4},TE:{min:1,max:2},D:{equal:1},FX:{equal:7},N:{equal:9}},variables:{},ints:{}};
+    var teams={};P.forEach(function(x){teams[x.t]=1});Object.keys(teams).forEach(function(t){m.constraints["tm_"+t]={max:4}});
+    P.forEach(function(x,i){if(!DF.lock[x.id]&&(use[x.id]||0)>=cap)return;var sc=x.mu+(+DF.up||0)*x.sd+(N>1||k>0?(+DF.rnd||0)/100*x.sd*gauss():0),v={pts:sc,sal:x.sal,N:1};v[x.pos]=1;
+      v["tm_"+x.t]=1;if(x.pos==="RB"||x.pos==="WR"||x.pos==="TE")v.FX=1;
+      if(x.pos==="QB"){if(+DF.stack>0){v["st_"+x.t]=-(+DF.stack);m.constraints["st_"+x.t]={min:0}}if(+DF.bring>0){v["bb_"+x.o]=-(+DF.bring);m.constraints["bb_"+x.o]={min:0}}}
+      if(x.pos==="WR"||x.pos==="TE")v["st_"+x.t]=1;
+      if(x.pos!=="D"&&x.pos!=="QB")v["bb_"+x.t]=1;
+      L.forEach(function(l,j){if(l.ids.indexOf(x.id)>=0)v["u"+j]=1});
+      if(DF.lock[x.id]){v["lk"+i]=1;m.constraints["lk"+i]={min:1}}
+      v["b"+i]=1;m.constraints["b"+i]={max:1};m.variables["x"+i]=v;m.ints["x"+i]=1});
+    L.forEach(function(l,j){m.constraints["u"+j]={max:9-Math.max(1,+DF.uniq||1)}});
+    var r=window.solver.Solve(m);if(!r.feasible){fail++;break}
+    var pick=Object.keys(r).filter(function(q){return q.charAt(0)==="x"&&r[q]>0.5}).map(function(q){return P[+q.slice(1)]});
+    if(pick.length!==9){fail++;break}
+    pick.forEach(function(x){use[x.id]=(use[x.id]||0)+1});L.push(dfOrder(pick))}
+  DFL={lineups:L,use:use,n:N,at:new Date().toISOString()};DFMSG=fail?(L.length?"Built "+L.length+" of "+N+": the locks, stack, exposure and uniqueness settings left no room for more.":"No lineup fits those settings. Loosen the stack, locks or exposure."):""}
+/* FanDuel order QB, RB, RB, WR, WR, WR, TE, FLEX, DEF; the FLEX is the eligible player who kicks off latest, which keeps late swap open */
+function dfOrder(pick){var g=function(p){return pick.filter(function(x){return x.pos===p})},q=g("QB"),rb=g("RB"),wr=g("WR"),te=g("TE"),d=g("D"),fx=null;
+  var late=function(a){return a.slice().sort(function(x,y){return (Date.parse(y.ts)||0)-(Date.parse(x.ts)||0)})[0]};
+  var extra=[];if(rb.length>2)extra=extra.concat(rb);if(wr.length>3)extra=extra.concat(wr);if(te.length>1)extra=extra.concat(te);fx=late(extra);
+  var rm=function(a){return a.filter(function(x){return x!==fx})};rb=rm(rb);wr=rm(wr);te=rm(te);
+  var slots=[["QB",q[0]],["RB",rb[0]],["RB",rb[1]],["WR",wr[0]],["WR",wr[1]],["WR",wr[2]],["TE",te[0]],["FLEX",fx],["DEF",d[0]]];
+  var sal=0,mu=0,va=0;pick.forEach(function(x){sal+=x.sal;mu+=x.mu;va+=x.sd*x.sd});
+  var tm={};pick.forEach(function(x){if(x.pos!=="D")tm[x.t]=(tm[x.t]||0)+1});var qt=q[0]?q[0].t:"",stk=pick.filter(function(x){return x.t===qt&&(x.pos==="WR"||x.pos==="TE"||x.pos==="RB")}).map(function(x){var w=x.n.split(" ").filter(function(s){return !/^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(s)});return w[w.length-1]});
+  return{slots:slots,ids:pick.map(function(x){return x.id}),sal:sal,mu:mu,ceil:mu+1.2816*Math.sqrt(va),stack:stk}}
+function dfExport(){if(!DFL||!DFL.lineups.length)return;var csv="QB,RB,RB,WR,WR,WR,TE,FLEX,DEF\n"+DFL.lineups.map(function(l){return l.slots.map(function(s){return s[1]?s[1].id:""}).join(",")}).join("\n")+"\n";
+  try{var a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="fanduel-lineups.csv";document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500);say2("Saved fanduel-lineups.csv")}catch(e){say2("Could not save the file here.")}}
+var DCOL=[["",null],["Pos",function(x){return ["QB","RB","WR","TE","D"].indexOf(x.pos)}],["Player",function(x){return x.n}],["Team",function(x){return x.t}],["Opp",function(x){return x.o}],["Salary",function(x){return x.sal}],["Proj",function(x){return x.mu}],["Ceiling",function(x){return dfCeil(x)}],["Pts/$1k",function(x){return x.mu/x.sal*1000}],["Ceil/$1k",function(x){return dfCeil(x)/x.sal*1000}],["TD%",function(x){return x.r?x.r.p:null}],["xRec",function(x){return x.r&&x.r.rm!=null?x.r.rm:null}],["FD avg",function(x){return x.fppg}],["Used",function(x){return DFL?(DFL.use[x.id]||0):0}]];
+function vDfs(){var pool=dfPool(),h='<section class="panel"><div class="phead"><h2>FanDuel lineups · tournaments</h2><div class="filters"><label class="btn ghost" for="dfsFile" style="cursor:pointer">'+(DF.csv?"Replace player list":"Upload FanDuel player list")+'</label><input type="file" id="dfsFile" accept=".csv,text/csv" hidden>'+(DF.csv?'<button class="btn ghost" type="button" data-dfs="clear">Clear</button>':"")+"</div></div>";
+  h+='<p class="note">Projections are FanDuel points (half-PPR) built from this site\'s own models: the touchdown chance, expected catches, each player\'s recent carries, targets and yards a touch, and the game\'s betting total. QBs lean on their own recent scoring, which was the better guide on 2025–26. Tested on 2025 and 2026 games the models never saw, the projections beat each player\'s own recent average for running backs, receivers and tight ends (tight ends most); quarterbacks came out about level. <b>Ceiling</b> is the score he beats one week in ten. For tournaments the optimizer leans toward ceiling, stacks the quarterback with his receivers, and spreads lineups out so they are not all the same. There are no ownership projections here, so lean on your own read of who the field will chase.</p>';
+  if(!DF.csv)h+='<p class="note warnline"><b>To start:</b> in FanDuel, open any NFL classic contest, choose <b>Download players list</b>, and upload that file here. It stays in this browser. Until then the table below shows the projections without salaries.</p>';
+  if(pool.err)h+='<p class="note warnline">'+esc(pool.err)+"</p>";
+  if(DF.csv&&!pool.err){var nd=pool.players.length,nm=pool.miss.filter(function(x){return x.sal>=4600||x.pos==="D"}).length;
+    h+='<p class="note">'+nd+" players matched to projections across "+Object.keys(pool.games).length+" games"+(nm?" · "+nm+" with a salary of $4,600+ not matched (no projection: usually a backup, a new signing or a name spelled differently): "+esc(pool.miss.filter(function(x){return x.sal>=4600||x.pos==="D"}).slice(0,12).map(function(x){return x.n+" ("+x.t+")"}).join(", ")):"")+". Players listed O, IR or D on FanDuel, and anyone whose game has started, are left out unless you lock them.</p>"}
+  var I=function(id,lab,val,step,min,max,title){return '<label class="f" for="'+id+'"'+(title?' title="'+esc(title)+'"':"")+">"+lab+' <input type="number" id="'+id+'" class="dfin" value="'+val+'" step="'+step+'" min="'+min+'" max="'+max+'" style="width:64px"></label>'};
+  if(DF.csv&&pool.players.length){h+='<div class="filters" style="justify-content:flex-start;margin-top:12px;flex-wrap:wrap;gap:12px">'+I("df_n","Lineups",DF.n,1,1,20)+I("df_up","Upside",DF.up,0.1,0,2,"0 = best median score; 1 = one standard deviation toward the ceiling. Tournaments reward upside: 0.5 to 1 is a sensible range")+
+      I("df_stack","Stack: QB +",DF.stack,1,0,3,"How many of his own receivers (WR or TE) each lineup's QB must have")+I("df_bring","Bring-back",DF.bring,1,0,2,"How many players from the QB's opponent each lineup must include")+
+      I("df_exp","Max exposure %",DF.exp,5,10,100,"The most lineups any one player can appear in (locked players excepted)")+I("df_uniq","Min different",DF.uniq,1,1,6,"How many players each lineup must differ by from every other")+I("df_rnd","Randomness %",DF.rnd,5,0,60,"Each lineup nudges projections up or down by this share of each player\'s spread, so the set explores different builds")+
+      '<button class="btn" type="button" data-dfs="build">Build lineups</button>'+(DFL&&DFL.lineups.length?'<button class="btn ghost" type="button" data-dfs="export">Download for FanDuel upload</button>':"")+"</div>"}
+  if(DFMSG)h+='<p class="note warnline">'+esc(DFMSG)+"</p>";
+  h+="</section>";
+  if(DFL&&DFL.lineups.length){h+='<section class="panel"><div class="phead"><h2>Lineups · '+DFL.lineups.length+'</h2><div class="filters"><span class="tag">locks '+Object.keys(DF.lock).length+" · excludes "+Object.keys(DF.ex).length+"</span></div></div>"+
+      '<p class="note">The download is in FanDuel\'s upload format (player Ids in QB, RB, RB, WR, WR, WR, TE, FLEX, DEF order). In FanDuel use Upload lineups on the contest. The FLEX is whoever kicks off latest, so you can still swap him late.</p><div class="dfl">'+
+      DFL.lineups.map(function(l,i){return '<article class="pcard dfc"><div class="pc-top"><b>Lineup '+(i+1)+'</b><span class="o">$'+l.sal.toLocaleString()+'</span><b class="acc" style="margin-left:auto">'+f2(l.mu,1)+'</b><span class="o">ceil '+f2(l.ceil,0)+'</span></div><table class="mini dft"><tbody>'+
+        l.slots.map(function(s){var x=s[1];if(!x)return "";return '<tr><td class="o">'+s[0]+'</td><td><span class="pn">'+esc(x.n)+'</span> <span class="o">'+x.t+'</span></td><td class="n o">$'+(x.sal/1000).toFixed(1)+'k</td><td class="n">'+f2(x.mu,1)+"</td></tr>"}).join("")+'</tbody></table><div class="o" style="font-size:12px">Stack: '+(l.stack.length?esc(l.slots[0][1].t+" QB + "+l.stack.join(", ")):"none")+"</div></article>"}).join("")+"</div></section>"}
+  // pool table
+  var wc={},now=Date.now();D.sched.forEach(function(g){if(Date.parse(g.ts)>now)wc[g.wk]=(wc[g.wk]||0)+1});var nwk=+Object.keys(wc).sort(function(a,b){return wc[b]-wc[a]})[0]||S.wk;
+  var rows=pool.players.length?pool.players:D.picks.filter(function(p){var g=gm(p.g);return p.fd&&g&&g.wk===nwk}).map(function(p){return{id:"p:"+p.g+"|"+p.id,pos:p.pos,n:p.n,t:p.t,o:p.o,sal:0,mu:p.fd[0],sd:p.fd[1],r:p,g:p.g,fppg:null}});
+  if(DF.pos!=="all")rows=rows.filter(function(x){return x.pos===DF.pos});if(DF.q)rows=rows.filter(function(x){return norm(x.n).indexOf(norm(DF.q))>=0||x.t===DF.q.toUpperCase()});
+  var so=DF.sort||[6,-1],fn=DCOL[so[0]]&&DCOL[so[0]][1];if(fn)rows=rows.slice().sort(function(a,b){var x=fn(a),y=fn(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return (typeof x==="string"?x.localeCompare(y):x-y)*so[1]});
+  h+='<section class="panel"><div class="phead"><h2>Player pool</h2><div class="filters">'+["all","QB","RB","WR","TE","D"].map(function(p){return '<button class="tag'+(DF.pos===p?" t8":"")+'" type="button" data-dfpos="'+p+'">'+(p==="all"?"All":p)+"</button>"}).join("")+'<input type="text" id="dfq" placeholder="Player or team" value="'+esc(DF.q)+'" style="width:150px"></div></div>';
+  h+='<p class="note">Lock a player to force him into every lineup; exclude him to leave him out. Tags carry over from the rest of the site: Ledger picks, Tgt ↓ (target share dropping), Q tm (a questionable teammate).</p>';
+  h+='<div class="tw"><table class="rtab dfp" data-stick="3"><thead><tr>'+DCOL.map(function(c,i){return "<th"+(i>=5?' class="n"':"")+(c[1]?' data-dfsort="'+i+'" tabindex="0"':"")+(so[0]===i?' aria-sort="'+(so[1]>0?"ascending":"descending")+'"':"")+">"+c[0]+"</th>"}).join("")+"</tr></thead><tbody>";
+  rows.slice(0,400).forEach(function(x){var out=x.sal&&dfOut(x),lk=DF.lock[x.id],ex=DF.ex[x.id],r=x.r;
+    h+='<tr'+(lk?' class="sc"':out?' style="opacity:.5"':"")+'><td style="white-space:nowrap">'+(x.sal?'<button class="tag'+(lk?" rw":"")+'" type="button" data-dflock="'+esc(x.id)+'" title="Lock into every lineup">🔒</button> <button class="tag'+(ex?" rl":"")+'" type="button" data-dfex="'+esc(x.id)+'" title="Leave out">✕</button>':"")+'</td><td><span class="tag pos">'+x.pos+"</span></td><td>"+(r?'<button class="lnk" type="button" data-open="'+esc(r.g+"|"+r.id)+'">'+esc(x.n)+"</button>"+(typeof pickTag0==="function"?pickTag0(r):"")+tdTag(r.g,r.id):'<span class="pn">'+esc(x.n)+"</span>")+(x.inj?' <span class="tag hot" title="'+esc(x.injd||"")+'">'+esc(x.inj)+"</span>":"")+"</td><td>"+tmL(x.t)+'</td><td class="o">'+esc(x.o||"")+'</td><td class="n">'+(x.sal?"$"+x.sal.toLocaleString():"–")+'</td><td class="n k"><b>'+f2(x.mu,1)+'</b></td><td class="n">'+f2(dfCeil(x),1)+'</td><td class="n">'+(x.sal?f2(x.mu/x.sal*1000,2):"–")+'</td><td class="n">'+(x.sal?f2(dfCeil(x)/x.sal*1000,2):"–")+'</td><td class="n">'+(r?pct(r.p):"–")+'</td><td class="n">'+(r&&r.rm!=null?f2(r.rm,1):"–")+'</td><td class="n o">'+(x.fppg!=null&&!isNaN(x.fppg)?f2(x.fppg,1):"–")+'</td><td class="n">'+(DFL&&DFL.use[x.id]?Math.round(DFL.use[x.id]/DFL.lineups.length*100)+"%":"–")+"</td></tr>"});
+  h+="</tbody></table></div>"+(rows.length>400?'<p class="note">Showing 400 of '+rows.length+". Filter by position or search to see the rest.</p>":"")+"</section>";
+  return h}
+document.addEventListener("click",function(e){var t=e.target.closest&&e.target.closest("[data-dfs],[data-dflock],[data-dfex],[data-dfpos],[data-dfsort]");if(!t)return;
+  if(t.dataset.dfs==="build"){var b=t;b.disabled=true;b.textContent="Building…";needLP(function(){try{dfBuild()}catch(err){DFMSG="The optimizer hit an error: "+err.message}render(true)});return}
+  if(t.dataset.dfs==="export"){dfExport();return}
+  if(t.dataset.dfs==="clear"){DF.csv="";DF.lock={};DF.ex={};DFL=null;_dfp=null;dfSave();render(true);return}
+  if(t.dataset.dflock!=null){var k=t.dataset.dflock;if(DF.lock[k])delete DF.lock[k];else{DF.lock[k]=1;delete DF.ex[k]}dfSave();render(true);return}
+  if(t.dataset.dfex!=null){var k2=t.dataset.dfex;if(DF.ex[k2])delete DF.ex[k2];else{DF.ex[k2]=1;delete DF.lock[k2]}dfSave();render(true);return}
+  if(t.dataset.dfpos){DF.pos=t.dataset.dfpos;dfSave();render(true);return}
+  if(t.dataset.dfsort!=null){var i=+t.dataset.dfsort,c=DF.sort||[6,-1];DF.sort=c[0]===i?[i,-c[1]]:[i,i<=4?1:-1];dfSave();render(true);return}});
+document.addEventListener("change",function(e){var t=e.target;if(t.id==="dfsFile"){var f=t.files&&t.files[0];if(!f)return;var rd=new FileReader();rd.onload=function(){DF.csv=String(rd.result||"");DFL=null;_dfp=null;DFMSG="";dfSave();render(true)};rd.readAsText(f);return}
+  if(t.classList&&t.classList.contains("dfin")){var v=parseFloat(t.value);if(!isNaN(v)){DF[t.id.slice(3)]=v;dfSave()}}});
+document.addEventListener("input",function(e){if(e.target.id==="dfq"){DF.q=e.target.value;clearTimeout(vDfs.t);vDfs.t=setTimeout(function(){render(true);var q=$("dfq");if(q){q.focus();q.setSelectionRange(q.value.length,q.value.length)}},250)}});
+
 /* ---------- player pop-up ---------- */
 var TCOL={ARI:"#97233F",ATL:"#A71930",BAL:"#241773",BUF:"#00338D",CAR:"#0085CA",CHI:"#0B162A",CIN:"#FB4F14",CLE:"#311D00",DAL:"#003594",DEN:"#FB4F14",DET:"#0076B6",GB:"#203731",HOU:"#03202F",IND:"#002C5F",JAX:"#006778",KC:"#E31837",LV:"#3a3a3a",LAC:"#0080C6",LA:"#003594",MIA:"#008E97",MIN:"#4F2683",NE:"#002244",NO:"#9F8958",NYG:"#0B2265",NYJ:"#125740",PHI:"#004C54",PIT:"#3a3320",SF:"#AA0000",SEA:"#002244",TB:"#D50A0A",TEN:"#0C2340",WAS:"#5A1414"};
 function modalHtml(r){var id=r.g+"|"+r.id,g=gm(r.g),L=liveRes(r);
@@ -1213,7 +1320,7 @@ var SHOT={};function fillShots(root){Array.prototype.forEach.call(root.querySele
 function renderModal(){var m=$("modal");if(!S.open&&S.openName){$("mbox").innerHTML=modalLite(S.openName);m.hidden=false;m.dataset.id="";document.body.style.overflow="hidden";return}
   var r=S.open?rowOf(S.open):null;if(!r){if(!m.hidden){m.hidden=true;$("mbox").innerHTML="";document.body.style.overflow=""}return}
   calc(r);var sc=m.scrollTop,was=m.dataset.id===S.open;var mx=[].map.call($("mbox").querySelectorAll(".tw"),function(e){return e.scrollLeft});$("mbox").innerHTML=modalHtml(r);fillShots($("mbox"));if(was)[].forEach.call($("mbox").querySelectorAll(".tw"),function(e,i){if(mx[i])e.scrollLeft=mx[i]});m.hidden=false;m.dataset.id=S.open;document.body.style.overflow="hidden";m.scrollTop=was?sc:0}
-var V={picks:vPicks,games:vGames,feed:vFeed,movers:vMovers,rec:vRec,ladders:vRec,players:vPlayers,teams:vTeams,tracker:vTracker,bets:vBets,model:vModel};
+var V={picks:vPicks,games:vGames,feed:vFeed,movers:vMovers,rec:vRec,ladders:vRec,dfs:vDfs,players:vPlayers,teams:vTeams,tracker:vTracker,bets:vBets,model:vModel};
 /* research tables: keep the first columns (team, player, opponent) pinned while the rest scrolls sideways */
 function stickCols(){Array.prototype.forEach.call(document.querySelectorAll("table[data-stick]"),function(t){var n=Math.min(+t.dataset.stick,window.innerWidth<640?2:9),hr=t.tHead&&t.tHead.rows[0];if(!hr)return;var left=[],x=0;
   for(var i=0;i<n&&i<hr.cells.length;i++){left.push(x);x+=hr.cells[i].getBoundingClientRect().width}

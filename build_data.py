@@ -46,7 +46,7 @@ K, KT, KD = 1.5, 6.0, 30.0       # shrinkage, in games, for player shares, team 
 PBP_COLS = ["game_id", "season", "week", "posteam", "defteam", "play_type", "yardline_100", "air_yards", "two_point_attempt",
             "sack", "touchdown", "td_player_id", "rusher_player_id", "receiver_player_id", "passer_player_id", "pass_touchdown",
             "play_id", "qtr", "fixed_drive", "time", "time_of_day", "td_team", "td_player_name", "rush_touchdown", "complete_pass",
-            "rushing_yards", "receiving_yards"]
+            "rushing_yards", "receiving_yards", "passing_yards", "interception", "fumble_lost"]
 HTML = "touchdown_ledger.html"
 TAG = "atd-data"
 ODDS = "odds.json"
@@ -169,7 +169,10 @@ def player_games(pbp, sn, ros, games, pl):
     t = tgt.groupby(["game_id", "posteam", "receiver_player_id"]).agg(
         tg=("x", "size"), tx=("x", "sum"), ctd=("td", "sum"), ez=("ez", "sum"), rec=("complete_pass", "sum"), cyd=("receiving_yards", "sum"),
         rzt=("yardline_100", lambda s: int((s <= 20).sum()))).reset_index().rename(columns={"receiver_player_id": "pid"})
-    pg = r.merge(t, on=["game_id", "posteam", "pid"], how="outer").fillna(0)
+    pas = op[(op.play_type == "pass") & op.passer_player_id.notna()]
+    q = pas.groupby(["game_id", "posteam", "passer_player_id"]).agg(
+        pyd=("passing_yards", "sum"), ptd=("pass_touchdown", "sum"), pint=("interception", "sum")).reset_index().rename(columns={"passer_player_id": "pid"})
+    pg = r.merge(t, on=["game_id", "posteam", "pid"], how="outer").merge(q, on=["game_id", "posteam", "pid"], how="outer").fillna(0)
     # the bet settles on any touchdown the player scores himself (rushing, receiving, return); throwing one does not count
     td = pbp[(pbp.touchdown == 1) & pbp.td_player_id.notna() & (pbp.two_point_attempt != 1)]
     td = td[~((td.pass_touchdown == 1) & (td.td_player_id == td.passer_player_id))]
@@ -189,6 +192,7 @@ def player_games(pbp, sn, ros, games, pl):
     sn = sn.drop_duplicates(["game_id", "pid"])
     d = sn.merge(pg, on=["game_id", "posteam", "pid"], how="left").merge(a, on=["game_id", "pid"], how="left").fillna(0)
     d["y"] = (d.tds > 0).astype(int)
+    d["fdp"] = 0.04 * d.pyd + 4 * d.ptd - d.pint + 0.1 * (d.ryd + d.cyd) + 6 * d.tds + 0.5 * d.rec      # FanDuel points he scored
     d["ftd"] = (d.game_id.map(first) == d.pid).astype(int)
     g = games.set_index("game_id")
     d = d[d.game_id.isin(g.index)]
@@ -225,7 +229,7 @@ def td_feed(pbp, d, pl, seasons):
 
 
 # ---------- features ----------
-PCOLS = ["rx", "tx", "trx", "ttx", "tds", "car", "tg", "i5", "ez", "snp", "rzc", "rzt", "y", "rec"]
+PCOLS = ["rx", "tx", "trx", "ttx", "tds", "car", "tg", "i5", "ez", "snp", "rzc", "rzt", "y", "rec", "ryd", "cyd", "pyd", "ptd", "pint", "fdp"]
 TCOLS = ["trx", "ttx", "trtd", "tctd", "ttg"]
 
 
@@ -347,6 +351,48 @@ def rec_design(s, lgt, vac=False):
     return np.column_stack(cols)
 
 
+FD_LG = {"ypc": 4.3, "ypr": 10.5, "pyd": 195.0, "pint": 0.6, "qtd": 0.85, "sdx": 1.3}
+
+
+def fd_proj(u):
+    """FanDuel points for each player (half-PPR: 0.04 a passing yard, 4 a passing TD, -1 an interception, 0.1 a rushing or receiving yard,
+    6 a touchdown, 0.5 a catch). Volume and efficiency come from his recent games (the same recency weights as everything else), yards
+    per carry and per catch pulled toward the league average, scaled a little by how many points his team is expected to score against
+    its usual. Touchdowns come from the model's own chance to score (expected TDs = -ln(1 - p)), catches from the receptions model.
+    The spread (sd) gives tournament ceilings: touchdowns dominate it."""
+    n = u.n.clip(lower=1)
+    car, rec = u.p_car / n, np.where(u.rm.notna(), u.rm, u.p_rec / n)
+    ypc = (u.p_ryd + 20 * FD_LG["ypc"]) / (u.p_car + 20)
+    ypr = (u.p_cyd + 8 * FD_LG["ypr"]) / (u.p_rec + 8)
+    tdr = (u.o_trtd + u.o_tctd + 4 * 2.4) / (u.o_n + 4)                      # his team's usual touchdowns a game
+    env = np.clip((u["T"] / tdr) ** 0.4, 0.8, 1.25)
+    ryd, cyd = car * ypc * env, rec * ypr * env
+    td = -np.log(1 - np.clip(u.p, 1e-6, 0.95))
+    isq = (u.pos == "QB").to_numpy()
+    pyd = np.where(isq, (u.p_pyd + 2 * FD_LG["pyd"]) / (n + 2) * env, 0)
+    ptd = np.where(isq, u["T"] * (1 - u.split) * FD_LG["qtd"], 0)     # most passing TDs go through the QB; some are trick plays or backups
+    pint = np.where(isq, (u.p_pint + 2 * FD_LG["pint"]) / (n + 2), 0)
+    mean = 0.04 * pyd + 4 * ptd - pint + 0.1 * (ryd + cyd) + 6 * td + 0.5 * rec
+    own = (u.p_fdp + 2 * 14.0) / (n + 2)
+    mean = np.where(isq, 0.35 * mean + 0.65 * own, mean)      # quarterbacks: their own recent scoring beat the build-up on 2025-26
+    var = 36 * td + 0.25 * 1.4 * rec + (0.055 * (ryd + cyd)) ** 2 + (0.04 * 0.28 * pyd) ** 2 + 16 * ptd + pint
+    return u.assign(fd=mean, fdsd=FD_LG["sdx"] * np.sqrt(var),     # sdx: widened so 80% of real games land inside +/-1.28 sd (2025-26 check)
+                     f_ryd=ryd, f_cyd=cyd, f_pyd=pyd, f_ptd=ptd, f_rec=rec, f_td=td)
+
+
+def fd_dst(imp_opp, lg):
+    """FanDuel team defense: points-allowed tiers (10 for a shutout down to -4 for 35+), 1 a sack, 2 a takeaway, 6 a defensive or return TD.
+    Points allowed are taken as roughly normal around the opponent's implied total; sacks and takeaways at the league rate, scaled by how
+    good the opposing offence is expected to be."""
+    sd = 9.5
+    tiers = [(-99, 0.5, 10), (0.5, 6.5, 7), (6.5, 13.5, 4), (13.5, 20.5, 1), (20.5, 27.5, 0), (27.5, 34.5, -1), (34.5, 99, -4)]
+    cdf = lambda x: 0.5 * (1 + math.erf((x - imp_opp) / (sd * math.sqrt(2))))
+    pa = sum((cdf(hi) - cdf(lo)) * pts for lo, hi, pts in tiers)
+    f = (22.0 / max(imp_opp, 10)) ** 0.6
+    mean = pa + f * (lg["sk"] + 2 * lg["to"] + 6 * lg["dtd"])
+    return mean, 5.5
+
+
 def add_vac(s, lgt):
     """Targets left open by teammates who are not dressing: the targets a game the team usually throws against the targets a game the
     players actually dressing usually get (log ratio, capped). History uses who played; this week uses the roster less players listed
@@ -462,6 +508,13 @@ def make(season=None, old=None):
     model["w"] = [r3(x, 4) for x in w]
     # receptions: expected catches for the ladders, fitted on everything; this season graded with a fit that never saw it
     lgt = float(d.groupby(["game_id", "posteam"]).ttg.first().mean())
+    try:
+        recent = pbp[pbp.season >= season - 1]
+        ng = max(recent.groupby(["game_id", "defteam"]).ngroups, 1)
+        dst_lg = {"sk": float((recent.sack == 1).sum()) / ng, "to": float(((recent.interception == 1) | (recent.fumble_lost == 1)).sum()) / ng,
+                  "dtd": float(((recent.touchdown == 1) & (recent.td_team == recent.defteam)).sum()) / ng}
+    except Exception:
+        dst_lg = {"sk": 2.4, "to": 1.3, "dtd": 0.15}
     s = add_vac(s, lgt)
     wr, phi = fit_rec(s, season, lgt)
     wv, _ = fit_rec(s, season, lgt, vac=True)        # only its open-targets weight is used, by the page's Q tm tag
@@ -557,6 +610,7 @@ def make(season=None, old=None):
         u["rate"] = -np.log(1 - u.p)
         u["pf"] = u.rate / u.groupby("game_id").rate.transform("sum") * fcov
         u = add_vac(u, lgt)
+        u = fd_proj(u.assign(rm=np.where(u.pos.isin(REC_POS), np.exp(rec_design(u, lgt) @ wr), np.nan)))
         u["rm"] = np.where(u.pos.isin(REC_POS), np.exp(rec_design(u, lgt) @ wr), np.nan)
         logs, rlog = {}, {}
         for pid, x in d[d.pid.isin(set(u.pid))].groupby("pid", sort=False):
@@ -574,7 +628,8 @@ def make(season=None, old=None):
                           "rz": r3((r.p_rzc + r.p_rzt) / n1, 2), "log": logs.get(r.pid, []),
                           **({"rm": r3(r.rm, 2), "rg": r3(r.p_rec / n1, 1), "tgg": r3(r.p_tg / n1, 1), "rl": rlog.get(r.pid, []),
                               "ctr": r3(r.p_rec / r.p_tg, 2) if r.p_tg > 0 else None, "tt": r3((r.o_ttg + 4 * lgt) / (r.o_n + 4), 1),
-                              "of": r3((r.d_ttg + 4 * lgt) / (r.d_n + 4) / lgt, 2), "vo": r3(r.vopen, 1)} if r.rm == r.rm else {})})
+                              "of": r3((r.d_ttg + 4 * lgt) / (r.d_n + 4) / lgt, 2), "vo": r3(r.vopen, 1)} if r.rm == r.rm else {}),
+                          "fd": [r3(r.fd, 2), r3(r.fdsd, 2)], "fdp": [r3(r.f_pyd, 1), r3(r.f_ptd, 2), r3(r.f_ryd, 1), r3(r.f_cyd, 1), r3(r.f_rec, 2), r3(r.f_td, 3)]})
     # ---- research tables
     def usage(x):
         gp = x.groupby("pid").agg(n=("name", "last"), t=("posteam", "last"), pos=("pos", "last"), gp=("game_id", "nunique"), snp=("snp", "mean"),
@@ -603,6 +658,8 @@ def make(season=None, old=None):
     out = {"season": int(season), "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "through": str(d.gameday.max()),
            "lastwk": int(dcur.week.max()) if len(dcur) else 0, "sched": sched, "picks": picks, "players": players, "teams": tms,
            "model": model, "trk": trk, "feed": td_feed(pbp, d, pl, [season - 1, season]), "rtrk": rtrk}
+    out["dst"] = {g["gid"]: {g["a"]: [r3(x, 2) for x in fd_dst(g["ih"], dst_lg)], g["h"]: [r3(x, 2) for x in fd_dst(g["ia"], dst_lg)]} for g in sched}
+    model["dst"] = {k: r3(v, 3) for k, v in dst_lg.items()}
     tg_ = {r[2] for r in trk}           # kickoff day and time of every graded game, for slot lines on the Tracker (e.g. the 4:25 TE)
     kk = games[games.game_id.isin(tg_)]
     out["kick"] = {gid: f"{str(wd)[:3]} {gt}" for gid, wd, gt in zip(kk.game_id, kk.weekday, kk.gametime)}
