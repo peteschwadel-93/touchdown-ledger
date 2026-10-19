@@ -665,9 +665,9 @@ def make(season=None, old=None):
     out["kick"] = {gid: f"{str(wd)[:3]} {gt}" for gid, wd, gt in zip(kk.game_id, kk.weekday, kk.gametime)}
     note = None
     bf = os.environ.get("ODDS_BACKFILL", "").strip().lower()
-    if bf in ("1", "2", "3", "4", "5", "6", "true"):
+    if bf in ("1", "2", "3", "4", "5", "6", "7", "true"):
         try:
-            backfill(season, int(os.environ.get("ODDS_LEAD", "60")), True, int(os.environ.get("ODDS_BACKFILL_MAX", "0")) or None, back=1 if bf in ("2", "5") else 0, first=bf == "3", two=bf in ("4", "5"), lad=bf == "6")
+            backfill(season, int(os.environ.get("ODDS_LEAD", "60")), True, int(os.environ.get("ODDS_BACKFILL_MAX", "0")) or None, back=1 if bf in ("2", "5") else 0, first=bf == "3", two=bf in ("4", "5"), lad=bf == "6", yds=bf == "7")
         except SystemExit as e:
             note = str(e)
             print(note, file=sys.stderr)
@@ -1486,7 +1486,7 @@ def remember_odds(sched, old, force=False):
     return store
 
 
-def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=False, lad=False):
+def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=False, lad=False, yds=False):
     """Closing-ish anytime-TD prices for this season's finished games, from The Odds API's historical endpoints (paid plans only).
 
     For each finished game without stored prices it asks for the snapshot `lead` minutes before kickoff. Cost: 10 requests per
@@ -1501,7 +1501,9 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
         store = json.load(open(ODDS, encoding="utf-8"))
     except Exception:
         store = {}
-    if lad:        # alt-receptions ladders for games that do not have them yet
+    if yds:        # alt receiving-yards ladders (back-test only for now): one market, 10 requests a game
+        todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("ya") and not (store.get(r.game_id) or {}).get("yatry")]
+    elif lad:        # alt-receptions ladders for games that do not have them yet
         todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("ro") and not (store.get(r.game_id) or {}).get("rotry")]
     elif two:        # 2+ TD prices for games that do not have them yet
         todo = [r for r in g.itertuples() if not (store.get(r.game_id) or {}).get("t") and not (store.get(r.game_id) or {}).get("ttry")]
@@ -1515,7 +1517,7 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
     for r in todo:
         ko = datetime.strptime(f"{r.gameday} {r.gametime}", "%Y-%m-%d %H:%M").replace(tzinfo=ET)
         slots.setdefault(ko - timedelta(minutes=lead), []).append(r)
-    cost = sum(10 if lad and (store.get(r.game_id) or {}).get("r") else 20 if lad else 10 for r in todo) + len(slots)
+    cost = sum(10 if yds or (lad and (store.get(r.game_id) or {}).get("r")) else 20 if lad else 10 for r in todo) + len(slots)
     print(f"{len(g)} finished games ({season - back}-{season}), {len(g) - len(todo)} already have prices. To fetch: {len(todo)} games in {len(slots)} kickoff slots.")
     print(f"Estimated cost: about {cost} requests (10 per game + 1 per slot).")
     if not todo:
@@ -1546,7 +1548,9 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
                 mk = "player_anytime_td" if not first else "player_1st_td" if old_rec.get("b") else "player_anytime_td,player_1st_td"
                 if two:
                     mk = "player_tds_over" if old_rec.get("b") else "player_anytime_td,player_tds_over"
-                if lad:      # games that already have ladders only need the main over/under lines
+                if yds:
+                    mk = "player_reception_yds_alternate"
+                elif lad:      # games that already have ladders only need the main over/under lines
                     mk = "player_receptions" if old_rec.get("r") else "player_receptions,player_receptions_alternate"
                 raw, hd = get(f"{ODDS_API.replace('/v4/', '/v4/historical/')}/events/{eid}/odds?apiKey={key}&regions=us&markets={mk}"
                               f"&oddsFormat=american&date={stamp}", 60, headers=True)
@@ -1558,6 +1562,21 @@ def backfill(season, lead=60, go=False, limit=None, back=0, first=False, two=Fal
                 continue
             doc = json.loads(raw)
             books = parse_td(doc.get("data") or {})
+            if yds:        # {book: [[player, yards (the over on 39.5 is stored as 40), price], ...]}
+                ya = parse_ladder(doc.get("data") or {}, "player_reception_yds_alternate")
+                rec = dict(old_rec)
+                rec.update({"ya": ya, "yat": doc.get("timestamp") or stamp} if ya else {"yatry": 1})
+                store[r.game_id] = rec
+                got += 1 if ya else 0
+                with open(ODDS, "w", encoding="utf-8") as f:
+                    json.dump(store, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+                left = hd.get("x-requests-remaining")
+                print(f"  {r.game_id}: {len(ya)} books with yards ladders" + (f"  ({left} requests left)" if left else ""), flush=True)
+                if left is not None and float(left) < 2500:      # keep room for the NBA and NHL dashboards on the same key
+                    print("Request allowance down to 2,500; stopping so the other dashboards keep enough.")
+                    return
+                time.sleep(0.3)
+                continue
             if lad:
                 ladder, ou = parse_ladder(doc.get("data") or {}), parse_ou(doc.get("data") or {})
                 rec = dict(old_rec)
