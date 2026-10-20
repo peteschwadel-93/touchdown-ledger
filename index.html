@@ -370,22 +370,24 @@ function meter(p,max){return '<span class="meter"><i style="width:'+Math.min(100
 function seg(id,opts,cur){return '<span class="seg" id="'+id+'">'+opts.map(function(o){return '<button data-v="'+esc(o[0])+'" aria-pressed="'+(String(o[0])===String(cur))+'">'+esc(o[1])+"</button>"}).join("")+"</span>"}
 function weeks(){var w=[];D.sched.forEach(function(g){if(w.indexOf(g.wk)<0)w.push(g.wk)});return w}
 function liveRes(r){var L=(D.live||{})[r.g];if(!L)return null;var k=norm(r.n);return{td:(L.td||{})[k]||0,first:L.first===k,final:L.st==="post"}}
-function cardLive(r){var g=gm(r.g);return{live:1,t8:r.t8,l4:r.l4,d2:r.d2,two:r._two,p2:r._p2,tp:r._tp,tev:r._tev,tk:r._tk,key:r.g+"|"+r.id,row:r,n:r.n,t:r.t,o:r.o,pos:r.pos,p:r.p,pr:r._pr,ev:r._ev,pf:r.pf,fp:r._fp,fev:r._fev,home:g.h===r.t,when:g.t,res:liveRes(r),pick:r._pick,ls:r._ls}}
-function cardPast(r){var sp=storedPrice(r),fp=firstPrice(r),d=sp?dec(sp[0]):null,e=d?r[7]*d-1:null,t2=twoPrice(r),d2=t2?dec(t2[0]):null,q2=two(r[7],r[6],r[15]),e2=d2?q2*d2-1:null;
-  return{t8:r[12],l4:r[13],d2:r[14],two:isTwo(q2,d2,e2),p2:q2,tp:t2?{a:t2[0],bk:t2[1]}:null,tev:e2,tk:d2?e2/(d2-1):null,n:r[3],t:r[4],o:r[5],pos:r[6],home:String(r[2]).split("_")[3]===r[4],p:r[7],pr:sp?{a:sp[0],bk:sp[1]}:null,ev:e,pf:r[10],fp:fp?{a:fp[0],bk:fp[1]}:null,fev:fp&&r[10]!=null?r[10]*dec(fp[0])-1:null,res:{td:r[9]||r[8],first:!!r[11],final:true},pick:!!(d&&r[7]>=PK.p&&e>=PK.lo&&e<=PK.hi),ls:!!(d&&!(r[7]>=PK.p&&e>=PK.lo&&e<=PK.hi)&&isLong(r[7],d,e))}}
+function cardLive(r){var g=gm(r.g);return{live:1,t8:r.t8,l4:r.l4,d2:r.d2,t8f:r.t8f,l4f:r.l4f,d2f:r.d2f,two:r._two,p2:r._p2,tp:r._tp,tev:r._tev,tk:r._tk,key:r.g+"|"+r.id,row:r,n:r.n,t:r.t,o:r.o,pos:r.pos,p:r.p,pr:r._pr,ev:r._ev,pf:r.pf,fp:r._fp,fev:r._fev,home:g.h===r.t,when:g.t,res:liveRes(r),pick:r._pick,ls:r._ls}}
+function cardPast(r){var sp=pastPrice(r),fp=firstPrice(r),d=sp?dec(sp[0]):null,e=d?r[7]*d-1:null,t2=twoPrice(r),d2=t2?dec(t2[0]):null,q2=two(r[7],r[6],r[15]),e2=d2?q2*d2-1:null;
+  var ff=Array.isArray(r[16])?r[16]:[];return{t8:r[12],l4:r[13],d2:r[14],t8f:ff[0],l4f:ff[1],d2f:ff[2],two:isTwo(q2,d2,e2),p2:q2,tp:t2?{a:t2[0],bk:t2[1]}:null,tev:e2,tk:d2?e2/(d2-1):null,n:r[3],t:r[4],o:r[5],pos:r[6],home:String(r[2]).split("_")[3]===r[4],p:r[7],pr:sp?{a:sp[0],bk:sp[1]}:null,ev:e,pf:r[10],fp:fp?{a:fp[0],bk:fp[1]}:null,fev:fp&&r[10]!=null?r[10]*dec(fp[0])-1:null,res:{td:r[9]||r[8],first:!!r[11],final:true},pick:!!(d&&r[7]>=PK.p&&e>=PK.lo&&e<=PK.hi),ls:!!(d&&!(r[7]>=PK.p&&e>=PK.lo&&e<=PK.hi)&&isLong(r[7],d,e))}}
 /* every Ledger pick of a week: games still to come (live model) plus games already in the books (graded rows) */
 /* The n best of an already-sorted list, with membership fixed at each game's kickoff: flag 1 = was on the list when his game started (keeps his
    place), 0 = was not (cannot be added later), none = game still to come, or kicked off before places were recorded. A player with no flag joins
    whenever he ranks in the best n of everyone still eligible, so the list can grow past n but nobody is ever dropped from it.
-   Places are recorded at the best price, so choosing another book falls back to the plain ranking. */
-function heldN(list,n,flag){var plain=S.book!=="best",fl=list.map(function(c){return plain?null:flag(c)}),topn=list.filter(function(c,i){return fl[i]!==0}).slice(0,n);
+   Places are recorded at the best price and again at FanDuel's prices; any other book falls back to the plain ranking. FanDuel games locked
+   before its places were recorded keep the best-price places. */
+function heldF(c,k){if(S.book==="FanDuel"){var v=c[k+"f"];return v!=null?v:c[k]}return c[k]}
+function heldN(list,n,flag){var plain=S.book!=="best"&&S.book!=="FanDuel",fl=list.map(function(c){return plain?null:flag(c)}),topn=list.filter(function(c,i){return fl[i]!==0}).slice(0,n);
   return list.filter(function(c,i){return fl[i]===1||(fl[i]==null&&topn.indexOf(c)>=0)})}
 function weekPicks(season,wk){var out=[],ls=[],rows=[],tw=[];
-  if(season===D.season){rows=D.picks.filter(function(r){var g=gm(r.g);return g&&g.wk===wk}).map(calc);rows.forEach(function(r){if(r._pick)out.push(cardLive(r));else if(r._ls)ls.push(cardLive(r));if(r._two)tw.push(twoCard(cardLive(r)))})}
-  (D.trk||[]).forEach(function(r){if(r[0]===season&&r[1]===wk&&!gm(r[2])){var c=cardPast(r);if(c.pick)out.push(c);else if(c.ls)ls.push(c);if(c.two)tw.push(twoCard(c))}});
-  out.sort(function(a,b){return b.p-a.p});var top=heldN(out,8,function(c){return c.t8});top.forEach(function(c){c.top=true;if(c.row)c.row._top=true});
-  ls.sort(function(a,b){return b.ev-a.ev});var lt=heldN(ls,4,function(c){return c.l4});lt.forEach(function(c){c.lsTop=true;if(c.row)c.row._lst=true});
-  tw.sort(function(a,b){return b.p-a.p});var tt=heldN(tw,4,function(c){return c.d2});tt.forEach(function(c){if(c.row)c.row._twt=true});
+  if(season===D.season){rows=D.picks.filter(function(r){var g=gm(r.g);return g&&g.wk===wk}).map(calc);rows.forEach(function(r){var c=cardLive(r),hp=!!c.pr&&heldOK()&&heldF(c,"t8")===1,hl=!!c.pr&&heldOK()&&heldF(c,"l4")===1;if(r._pick||hp)out.push(c);else if(r._ls||hl)ls.push(c);if(r._two||(heldOK()&&heldF(c,"d2")===1))tw.push(twoCard(c))})}
+  (D.trk||[]).forEach(function(r){if(r[0]===season&&r[1]===wk&&!gm(r[2])){var c=cardPast(r),hp=!!c.pr&&heldOK()&&heldF(c,"t8")===1;if(c.pick||hp)out.push(c);else if(c.ls||(!!c.pr&&heldOK()&&heldF(c,"l4")===1))ls.push(c);if(c.two||(heldOK()&&heldF(c,"d2")===1))tw.push(twoCard(c))}});
+  out.sort(function(a,b){return b.p-a.p});var top=heldN(out,8,function(c){return heldF(c,"t8")});top.forEach(function(c){c.top=true;if(c.row)c.row._top=true});
+  ls.sort(function(a,b){return b.ev-a.ev});var lt=heldN(ls,4,function(c){return heldF(c,"l4")});lt.forEach(function(c){c.lsTop=true;if(c.row)c.row._lst=true});
+  tw.sort(function(a,b){return b.p-a.p});var tt=heldN(tw,4,function(c){return heldF(c,"d2")});tt.forEach(function(c){if(c.row)c.row._twt=true});
   return{rows:rows,picks:out,top:top,ls:ls,lsTop:lt,two:tw,twoTop:tt}}
 function poolWk(wk){return weekPicks(D.season,wk).rows}
 function plOf(c){return !c.res||!c.pr?null:c.res.td>0?dec(c.pr.a)-1:c.res.final?-1:null}
@@ -913,6 +915,9 @@ function vTeams(){
 function pickBook(e){return e?[e.best[0],e.best[1]]:null}
 function indexOdds(o,bestKey,liveKey){var ix={};(o[bestKey]||[]).forEach(function(x){ix[norm(x[0])]={best:[x[1],x[2]],main:x[3]}});
   if(o[liveKey])Object.keys(o[liveKey]).forEach(function(bk){o[liveKey][bk].forEach(function(x){var n=norm(x[0]),e=ix[n]=ix[n]||{best:[x[1],bk],by:{}};e.by=e.by||{};e.by[bk]=x[1];if(dec(x[1])>dec(e.best[0]))e.best=[x[1],bk]})});return ix}
+function heldOK(){return S.book==="best"||S.book==="FanDuel"}
+/* the price a finished game's card shows: FanDuel's last look when FanDuel is chosen, otherwise the best (the Tracker always uses the best) */
+function pastPrice(r){if(S.book==="FanDuel"){var o=(D.odds||{})[r[2]];if(o&&o.fd){if(!o._fl){o._fl={};o.fd.forEach(function(x){if(x[1]!=null)o._fl[norm(x[0])]=[x[1],"FanDuel"]})}var v=o._fl[norm(r[3])];if(v)return v}}return storedPrice(r)}
 function storedPrice(r){var o=(D.odds||{})[r[2]];if(!o)return null;if(!o._ix)o._ix=indexOdds(o,"best","b");return pickBook(o._ix[norm(r[3])])}
 /* closing-line value: the price at the first look (the day before) against the last look before kickoff */
 function openPrice(r){var o=(D.odds||{})[r[2]];if(!o||!o.best0)return null;if(!o._ox){o._ox={};o.best0.forEach(function(x){o._ox[norm(x[0])]=[x[1],x[2]]})}return o._ox[norm(r[3])]||null}
