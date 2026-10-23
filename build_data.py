@@ -1025,6 +1025,9 @@ def rec_board(sched, picks, store, phi, season, rtrk=None):
                             st_[g["gid"]] = False
         for wk, gw, mode in allw:
             n_pick = min(5, max(1, math.ceil(len(gw) / 3)))
+            # games with no lines yet (Sunday's on a Thursday): the games priced so far get only their share of the places
+            n_unp = sum(1 for g in gw if not st_[g["gid"]] and not any(x.get("line") for x in byg_.get(g["gid"], [])))
+            share = lambda n_, held_: n_ if not n_unp else max(held_, math.ceil(n_ * (len(gw) - n_unp) / len(gw)))
             # picks: main-line overs and unders
             frozen = [p_ for g in gw if st_[g["gid"]] for p_ in (held(g["gid"], "rxp", mode) or [])]
             cands = []
@@ -1045,8 +1048,9 @@ def rec_board(sched, picks, store, phi, season, rtrk=None):
             cands.sort(key=lambda c: -c["p"])          # likeliest first: the biggest margins were mostly model error
             teams = {p_["t"] for p_ in frozen}
             chosen = []
+            cap = share(n_pick, len(frozen))
             for c in cands:
-                if len(frozen) + len(chosen) >= n_pick:
+                if len(frozen) + len(chosen) >= cap:
                     break
                 if c["t"] in teams or any(o["id"] == c["id"] for o in chosen):
                     continue
@@ -1077,7 +1081,7 @@ def rec_board(sched, picks, store, phi, season, rtrk=None):
                                "te": r3(sum(v["e"] for _, v in good)), "rungs": [[k_, v["a"], v["bk"], v["p"], v["e"], r3(w_ / tot, 2) if tot > 0 else r3(1 / len(good), 2)] for (k_, v), w_ in zip(good, wts)]})
             lc.sort(key=lambda c: -c["te"])
             n_l = min(5, max(1, math.ceil(len(gw) / 3)))
-            chosen_l = [c for c in lc if c["id"] not in {p_["id"] for p_ in frozen_l}][:max(0, n_l - len(frozen_l))]
+            chosen_l = [c for c in lc if c["id"] not in {p_["id"] for p_ in frozen_l}][:max(0, share(n_l, len(frozen_l)) - len(frozen_l))]
             for g in gw:
                 if not st_[g["gid"]] and mode == "live":
                     store.setdefault(g["gid"], {})["rxl" + sfx] = [dict(c, wk=wk) for c in chosen_l if c["g"] == g["gid"]]
@@ -1157,7 +1161,23 @@ def american(a):
 LOCK_RESTORE = json.loads('''{"2026_06_ARI_LA":{"alex bachman":[0.0461,0,0,0,0],"bam knight":[0.1514,0,0,0,0],"blake corum":[0.2437,0,0,0,0],"colby parkinson":[0.2443,0,0,0,1],"davante adams":[0.4711,0,0,0,0],"davis allen":[0.0948,0,0,0,0],"devin duvernay":[0.0413,0,0,0,0],"elijah higgins":[0.0668,0,0,0,0],"jacoby brissett":[0.155,0,0,0,0],"jalen brooks":[0.0663,0,0,0,0],"jordan whittington":[0.0387,0,0,0,0],"kendrick bourne":[0.0779,0,0,0,0],"konata mumpfield":[0.0965,0,0,0,0],"kyren williams":[0.5836,0,0,0,0],"matthew stafford":[0.0682,0,0,0,0],"max klare":[0.0521,0,0,0,0],"michael wilson":[0.3579,1,0,1,0],"puka nacua":[0.4888,0,0,0,0],"reggie virgil":[0.0987,0,0,0,0],"simi fehoko":[0.0204,0,0,0,0],"teagan quitoriano":[0.1009,0,0,0,0],"trey mcbride":[0.3867,0,0,0,0],"tutu atwell":[0.0455,0,0,0,0],"tyler allgeier":[0.2111,0,0,0,0],"tyler higbee":[0.1736,0,0,0,0]},"2026_06_BAL_CLE":{"blake whiteheart":[0.0233,0,0,0,0],"carsen ryan":[0.0199,0,0,0,0],"denzel boston":[0.3127,0,0,0,0],"derrick henry":[0.4932,0,0,0,0],"deshaun watson":[0.2351,0,1,0,0],"devontez walker":[0.084,0,0,0,0],"elijah sarratt":[0.0554,0,0,0,0],"harold fannin":[0.2984,0,0,0,0],"isaiah bond":[0.0736,0,0,0,0],"jakobi lane":[0.1875,0,1,0,1],"jaleel mclaughlin":[0.0618,0,0,0,0],"jerry jeudy":[0.1073,0,0,0,0],"josh cuevas":[0.0208,0,0,0,0],"justice hill":[0.0902,0,0,0,0],"kc concepcion":[0.1082,0,0,0,0],"lajohntay wester":[0.0205,0,0,0,0],"malachi corley":[0.0422,0,0,0,0],"mark andrews":[0.2774,0,0,0,0],"michael burton":[0.0662,0,0,0,0],"nick vannett":[0.0237,0,0,0,0],"quinshon judkins":[0.3868,1,0,0,0],"rashod bateman":[0.1904,0,0,0,0],"tylan wallace":[0.0315,0,0,0,0],"tyler huntley":[0.1834,0,0,0,0],"zay flowers":[0.1981,0,0,0,0]},"2026_06_BUF_LV":{"ashton jeanty":[0.5288,0,0,0,0],"brock bowers":[0.4804,0,0,0,0],"connor heyward":[0.0893,0,0,0,0],"dalton kincaid":[0.1365,0,0,0,0],"dareke young":[0.0291,0,0,0,0],"dawson knox":[0.2682,0,0,0,0],"dj moore":[0.2463,0,0,0,0],"dylan laube":[0.1142,0,0,0,0],"greg dortch":[0.0611,0,0,0,0],"ian thomas":[0.0338,0,0,0,0],"jackson hawes":[0.0343,0,0,0,0],"jalen nailor":[0.1574,0,0,0,0],"james cook":[0.4908,0,0,0,0],"josh allen":[0.4222,0,0,0,0],"josh palmer":[0.1212,0,0,0,0],"keleki latu":[0.0168,0,0,0,0],"keon coleman":[0.2377,0,0,0,0],"khalil shakir":[0.2225,0,0,0,0],"kirk cousins":[0.0397,0,0,0,0],"malik benson":[0.0658,0,0,0,0],"michael mayer":[0.2353,0,0,0,0],"mike washington":[0.0923,0,0,0,0],"ray davis":[0.0723,0,0,0,0],"skyler bell":[0.1829,0,0,0,0],"tre tucker":[0.3016,0,0,0,0],"ty johnson":[0.2092,0,0,0,0]},"2026_06_CAR_PHI":{"anthony tyus":[0.0867,0,0,0,0],"bryce young":[0.0879,0,0,0,0],"brycen tremayne":[0.0717,0,0,0,0],"chuba hubbard":[0.4453,0,0,0,0],"dallas goedert":[0.348,0,0,0,0],"dameon pierce":[0.3535,0,0,0,0],"darius cooper":[0.1339,0,0,0,0],"darren waller":[0.196,0,0,0,0],"david moore":[0.0834,0,0,0,0],"devonta smith":[0.2502,0,0,0,0],"dontayvion wicks":[0.1707,0,0,0,0],"ej jenkins":[0.0135,0,0,0,0],"elijah moore":[0.0525,0,0,0,0],"jalen coker":[0.2448,0,0,0,0],"john metchie":[0.1258,0,0,0,0],"johnny mundt":[0.0211,0,0,0,0],"makai lemon":[0.0784,0,0,0,0],"marquise brown":[0.0929,0,0,0,0],"mitchell evans":[0.0923,0,0,0,0],"tetairoa mcmillan":[0.3578,1,0,1,0],"tommy tremble":[0.0734,0,0,0,0],"trevor etienne":[0.0677,0,0,0,0]},"2026_06_CHI_ATL":{"austin hooper":[0.119,0,0,0,0],"bijan robinson":[0.6015,0,0,0,0],"brian robinson":[0.2175,0,0,0,0],"caleb williams":[0.2685,0,0,0,0],"charlie woerner":[0.0583,0,0,0,0],"chris blair":[0.0336,0,0,0,0],"cole kmet":[0.1252,0,0,0,0],"colston loveland":[0.3253,0,0,0,0],"dandre swift":[0.5171,0,0,0,0],"drake london":[0.3254,0,0,0,0],"jahan dotson":[0.2566,0,0,0,0],"jahdae walker":[0.081,0,0,0,0],"kalif raymond":[0.1114,0,0,0,0],"kyle pitts":[0.3023,0,0,1,0],"luther burden":[0.293,0,0,0,0],"michael penix":[0.0552,0,0,0,0],"nick muse":[0.019,0,0,0,0],"olamide zaccheaus":[0.1065,0,0,0,0],"rome odunze":[0.3682,1,0,1,0],"roschon johnson":[0.2115,0,0,0,0],"sam roush":[0.0367,0,0,0,0],"zachariah branch":[0.0491,0,0,0,0],"zavion thomas":[0.0315,0,0,0,0]},"2026_06_DAL_GB":{"bo melton":[0.0661,0,0,0,0],"brevyn spann ford":[0.0363,0,0,0,0],"ceedee lamb":[0.3734,0,0,0,0],"christian watson":[0.421,0,0,0,0],"dak prescott":[0.1177,0,0,0,0],"george pickens":[0.4002,0,0,0,0],"hunter luepke":[0.0601,0,0,0,0],"j michael sturdivant":[0.0376,0,0,0,0],"jake ferguson":[0.2765,0,0,0,0],"javonte williams":[0.6277,0,0,0,0],"jonathan mingo":[0.0688,0,0,0,0],"jonnu smith":[0.0965,0,0,0,0],"jordan love":[0.0655,0,0,0,0],"josh whyle":[0.0377,0,0,0,0],"kaleb johnson":[0.1647,0,0,0,0],"kavontae turpin":[0.0652,0,0,0,0],"luke schoonmaker":[0.0257,0,0,0,0],"mark redman":[0.0261,0,0,0,0],"marshawn lloyd":[0.4012,0,0,0,0],"matthew golden":[0.3357,0,0,0,0],"pierre strong":[0.1433,0,0,0,0],"ryan flournoy":[0.2217,0,0,0,0],"savion williams":[0.0657,0,0,0,0],"tucker kraft":[0.3537,0,0,0,0],"tyler goodson":[0.0659,0,0,0,0]},"2026_06_HOU_JAX":{"ameer abdullah":[0.0532,0,0,0,0],"bhayshul tuten":[0.3113,0,0,0,0],"brenton strange":[0.2132,0,0,0,0],"brevin jordan":[0.0318,0,0,0,0],"brian thomas":[0.2207,0,0,0,0],"cade stover":[0.0413,0,0,0,0],"chris rodriguez":[0.2254,0,0,0,0],"cj stroud":[0.1432,0,0,0,0],"dalton schultz":[0.1705,0,0,0,0],"dare ogunbowale":[0.1141,0,0,0,0],"foster moreau":[0.1417,0,0,0,0],"jakobi meyers":[0.3035,0,0,0,0],"jaylin noel":[0.0928,0,0,0,0],"josh cameron":[0.1251,0,0,0,0],"kayshon boutte":[0.1381,0,0,0,0],"lequint allen":[0.0681,0,0,0,0],"nate boerkircher":[0.0568,0,0,0,0],"nico collins":[0.3189,0,0,0,0],"parker washington":[0.2814,0,0,0,0],"quintin morris":[0.0289,0,0,0,0],"tanner koziol":[0.0175,0,0,0,0],"travis hunter":[0.076,0,0,0,0],"trevor lawrence":[0.1564,0,0,0,0],"woody marks":[0.4034,0,0,0,0],"xavier hutchinson":[0.1376,0,0,0,0]},"2026_06_LAC_KC":{"ben vansumeren":[0.0505,0,0,0,0],"brashard smith":[0.1453,0,0,0,0],"brenen thompson":[0.039,0,0,0,0],"charlie kolar":[0.0391,0,0,0,0],"cyrus allen":[0.039,0,0,0,0],"derius davis":[0.0203,0,0,0,0],"emmett johnson":[0.0972,0,0,0,0],"hayden rucci":[0.0575,0,0,0,0],"jake briningstool":[0.0352,0,0,0,0],"jalen royals":[0.1271,0,0,0,0],"justin herbert":[0.2317,0,1,0,1],"keandre lambert smith":[0.0386,0,0,0,0],"keaton mitchell":[0.1078,0,0,0,0],"kenneth walker":[0.5966,0,0,0,0],"kimani vidal":[0.13,0,0,0,0],"ladd mcconkey":[0.1616,0,0,0,0],"marquez valdes scantling":[0.0833,0,0,0,0],"noah gray":[0.1473,0,0,0,0],"omarion hampton":[0.287,0,0,0,0],"oronde gadsden":[0.1107,0,0,0,0],"patrick mahomes":[0.1225,0,0,0,0],"quentin johnston":[0.1498,0,0,0,0],"scott matlock":[0.0425,0,0,0,0],"theo wease":[0.0708,0,0,0,0],"travis kelce":[0.3205,0,0,0,0],"xavier worthy":[0.3304,0,0,0,0]},"2026_06_NO_NYG":{"alvin kamara":[0.2601,0,0,0,0],"barion brown":[0.0368,0,0,0,0],"bryce lance":[0.0974,0,0,0,0],"cam skattebo":[0.3685,0,0,0,0],"cedric tillman":[0.142,0,0,0,0],"charlie jones":[0.0321,0,0,0,0],"chris manhertz":[0.0194,0,0,0,0],"chris olave":[0.3518,0,0,0,0],"cj donaldson":[0.096,0,0,0,0],"darnell mooney":[0.2082,0,1,0,1],"devaughn vele":[0.3292,0,0,0,0],"isaiah likely":[0.3216,0,0,0,0],"jameis winston":[0.0889,0,0,0,0],"juwan johnson":[0.2837,0,0,0,0],"kendre miller":[0.2772,0,0,0,0],"malachi fields":[0.1038,0,0,0,0],"malik nabers":[0.4177,1,0,1,0],"najee harris":[0.2344,0,0,0,0],"noah fant":[0.1502,0,0,0,0],"oscar delp":[0.023,0,0,0,0],"patrick ricard":[0.0558,0,0,0,0],"treyton welch":[0.0172,0,0,0,0],"tyler shough":[0.1853,0,0,0,0],"tyrone tracy":[0.1658,0,0,0,0]},"2026_06_NYJ_NE":{"aj brown":[0.2834,0,0,0,0],"andrew beck":[0.0754,0,0,0,0],"braelon allen":[0.305,0,0,0,0],"cameron latu":[0.0131,0,0,0,0],"corey kiner":[0.1032,0,0,0,0],"demario douglas":[0.2002,0,0,0,0],"drake maye":[0.2579,0,0,0,0],"efton chism":[0.1242,0,0,0,0],"eli raridon":[0.1892,0,0,0,0],"garrett wilson":[0.2782,0,0,0,0],"geno smith":[0.115,0,0,0,0],"hunter henry":[0.2368,0,0,0,0],"isaiah davis":[0.1214,0,0,0,0],"isaiah williams":[0.0936,0,0,0,0],"jelani woods":[0.0342,0,0,0,0],"jeremy ruckert":[0.1183,0,0,0,0],"kenyon sadiq":[0.1642,0,0,0,0],"kyle williams":[0.0704,0,0,0,0],"malik mcclain":[0.0351,0,0,0,0],"mason taylor":[0.124,0,0,0,0],"omar cooper":[0.059,0,0,0,0],"rhamondre stevenson":[0.4027,0,0,0,0],"romeo doubs":[0.3368,1,0,1,0],"tanner arkin":[0.0253,0,0,0,0],"tim patrick":[0.0873,0,0,0,0],"treveyon henderson":[0.211,0,0,0,0]},"2026_06_PIT_TB":{"aaron rodgers":[0.0345,0,0,0,0],"bauer sharp":[0.0147,0,0,0,0],"brandon smith":[0.0474,0,0,0,0],"bucky irving":[0.3312,0,0,0,0],"cade otton":[0.1582,0,0,0,0],"chris godwin":[0.1619,0,0,0,0],"darnell washington":[0.2357,0,0,0,0],"dk metcalf":[0.3403,1,0,0,0],"emeka egbuka":[0.306,0,0,1,0],"germie bernard":[0.1222,0,0,0,0],"jalon daniels":[0.1642,0,0,0,0],"jaylen warren":[0.3351,0,0,0,0],"kameron johnson":[0.0202,0,0,0,0],"kenny gainwell":[0.2176,0,0,0,0],"ko kieft":[0.0122,0,0,0,0],"lew nichols":[0.0969,0,0,0,0],"pat freiermuth":[0.2981,0,0,0,0],"payne durham":[0.0273,0,0,0,0],"rico dowdle":[0.2423,0,0,0,0],"riley nowakowski":[0.0513,0,0,0,0],"robert tonyan":[0.0219,0,0,0,0],"sean tucker":[0.1754,0,0,0,0],"ted hurst":[0.1345,0,0,0,0],"tez johnson":[0.081,0,0,0,0],"travis homer":[0.0564,0,0,0,0]},"2026_06_SEA_DEN":{"adam prentice":[0.0414,0,0,0,0],"adam trautman":[0.0257,0,0,0,0],"aj barner":[0.3327,0,0,0,0],"bo nix":[0.173,0,0,0,0],"brady russell":[0.0402,0,0,0,0],"cooper kupp":[0.1967,0,1,0,1],"courtland sutton":[0.3218,1,0,1,0],"drew lock":[0.0312,0,0,0,0],"elijah arroyo":[0.0335,0,0,0,0],"emanuel wilson":[0.3721,0,0,0,0],"eric saubert":[0.0397,0,0,0,0],"evan engram":[0.1091,0,0,0,0],"george holani":[0.2186,1,0,1,0],"jaxon smith njigba":[0.4103,0,0,0,0],"jaylen waddle":[0.1609,0,0,0,0],"jk dobbins":[0.2919,0,0,0,0],"liljordan humphrey":[0.0924,0,0,0,0],"marvin mims":[0.058,0,0,0,0],"nate adkins":[0.0842,0,0,0,0],"rashid shaheed":[0.1017,0,0,0,0],"rj harvey":[0.2366,0,0,0,0],"tory horton":[0.1114,0,0,0,0],"troy franklin":[0.1033,0,0,0,0],"tyler badie":[0.0638,0,0,0,0]},"2026_06_TEN_IND":{"andrew ogletree":[0.0355,0,0,0,0],"calvin ridley":[0.0647,0,0,0,0],"cam ward":[0.1403,0,0,0,0],"carnell tate":[0.1851,0,0,0,0],"chimere dike":[0.0716,0,0,0,0],"daniel bellinger":[0.0493,0,0,0,0],"daniel jones":[0.1571,0,0,0,0],"david martin robinson":[0.0169,0,0,0,0],"deion burks":[0.0786,0,0,0,0],"elic ayomanor":[0.223,0,1,0,0],"gunnar helm":[0.1528,0,0,0,0],"jonathan taylor":[0.6066,0,0,0,0],"josh downs":[0.2182,0,0,0,0],"keenan allen":[0.2765,0,0,0,0],"kylen granson":[0.0229,0,0,0,0],"laquon treadwell":[0.1809,0,0,0,0],"mo alie cox":[0.0645,0,0,0,0],"nicholas singleton":[0.0488,0,0,0,0],"seth mcgowan":[0.1096,0,0,0,0],"tony pollard":[0.3585,0,0,0,0],"tyjae spears":[0.137,0,0,0,0],"tyler warren":[0.4351,1,0,0,0],"wandale robinson":[0.2579,0,0,0,0],"will mallory":[0.0292,0,0,0,0]}}''')
 
 
+# Week 7 of 2026: Thursday's game locked before the Thursday rule (unpriced Sunday games still compete for the places). Its flags replayed
+# under that rule from the 7:32 PM prices; the receptions board keeps its likeliest pick only, the Thursday game's share. Applied once.
+LOCK_FIX = json.loads('''{"2026_07_NE_CHI":{"aj brown":[0,0,0,[0,0,0]],"caleb williams":[0,0,0,[0,0,0]],"cameron latu":[0,0,0,[0,0,0]],"cole kmet":[0,0,0,[0,0,0]],"colston loveland":[1,0,0,[1,0,0]],"corey kiner":[0,0,0,[0,0,0]],"dandre swift":[0,0,0,[0,0,0]],"demario douglas":[0,0,0,[0,0,0]],"drake maye":[0,0,0,[0,0,0]],"efton chism":[0,0,0,[0,0,0]],"eli raridon":[0,1,0,[0,1,0]],"hunter henry":[0,0,0,[0,0,0]],"jahdae walker":[0,0,0,[0,0,0]],"kalif raymond":[0,0,0,[0,0,0]],"kyle williams":[0,0,0,[0,0,0]],"luther burden":[0,0,0,[0,0,0]],"rhamondre stevenson":[0,0,0,[0,0,0]],"rome odunze":[0,0,0,[0,0,0]],"roschon johnson":[0,0,0,[0,0,0]],"sam roush":[0,0,0,[0,0,0]],"tanner arkin":[0,0,0,[0,0,0]],"treveyon henderson":[0,0,0,[0,0,0]],"zavion thomas":[0,0,0,[0,0,0]]}}''')
+
+
 def restore_locks(store):
+    for gid, rows in LOCK_FIX.items():
+        rec = store.get(gid)
+        if not isinstance(rec, dict) or rec.get("_fx") or not rec.get("lock"):
+            continue
+        for n, v in rows.items():
+            if n in rec["lock"]:
+                rec["lock"][n] = rec["lock"][n][:2] + v
+        for k in ("rxp", "rxpF"):
+            if rec.get(k):
+                rec[k] = sorted(rec[k], key=lambda c: -c["p"])[:1]
+        rec["_fx"] = 1
     for gid, rows in LOCK_RESTORE.items():
         rec = store.get(gid)
         if not isinstance(rec, dict):
@@ -1169,6 +1189,11 @@ def restore_locks(store):
             for n, v in rows.items():
                 if n in lk and len(lk[n]) == 5:
                     lk[n].append([v[3], v[4], None])
+
+
+def pick_rate(p):
+    """how often a player at this chance turned out a Ledger pick once priced (2026 weeks 1-6)"""
+    return 0.2 if p < 0.5 else 0.03
 
 
 def apply_locks(sched, picks, now=None):
@@ -1190,7 +1215,7 @@ def apply_locks(sched, picks, now=None):
     member = {}
     for sfx, only in (("", None), ("f", "FanDuel")):      # held at the best price, and again at FanDuel's own prices
       for wk in {u["wk"] for u in sched}:
-        cand = []
+        cand, ghosts, n_games, n_unpriced = [], [], 0, 0
         for u in sched:
             if u["wk"] != wk:
                 continue
@@ -1205,6 +1230,11 @@ def apply_locks(sched, picks, now=None):
                         k = norm_name(x[0])
                         if isinstance(x[1], (int, float)) and x[1] and (k not in dst or american(x[1]) > dst[k]):
                             dst[k] = american(x[1])
+            n_games += 1
+            if not started and not best:          # not priced yet (Sunday's games on a Thursday): their players still compete
+                n_unpriced += 1
+                ghosts += [r["p"] for r in by.get(u["gid"], []) if r["p"] >= 0.2]
+                continue
             for r in (rec["lockrows"] if started else by.get(u["gid"], [])):
                 d = best.get(norm_name(r["n"]))
                 ev = r["p"] * d - 1 if d else None
@@ -1218,7 +1248,16 @@ def apply_locks(sched, picks, now=None):
         for flag, kind, n, rank in (("t8", "pick", 8, "p"), ("l4", "long", 4, "ev"), ("d2", "two", 4, "k2")):
             # held players keep their place; a player whose game is still to come joins when he ranks in the best n of
             # everyone still eligible, so the list can grow past n but never drops anybody
-            best_n = sorted((c for c in cand if c[flag] != 0 and c[kind]), key=lambda c: -c[rank])[:n]
+            elig = sorted((c for c in cand if c[flag] != 0 and c[kind]), key=lambda c: -c[rank])
+            if not n_unpriced:
+                best_n = elig[:n]
+            elif flag == "t8":
+                # every player's chance is known before his price: a player is in if, counting each unpriced player above him
+                # by how often one at his chance turns out a pick (2026: about 1 in 5 from 20-50%, almost never at 50%+), he still ranks in the best 8
+                best_n = [c for i, c in enumerate(elig) if i + sum(pick_rate(q) for q in ghosts if q > c["p"]) < n]
+            else:
+                # long shots and 2+ TD rank on prices: the games priced so far get their share of the places
+                best_n = elig[:max(sum(1 for c in elig if c[flag] == 1), math.ceil(n * (n_games - n_unpriced) / n_games))]
             for c in cand:
                 if c[flag] == 1 or (c[flag] is None and any(c is x for x in best_n)):
                     member.setdefault(c["key"], {})[flag + sfx] = 1

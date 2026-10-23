@@ -380,14 +380,23 @@ function cardPast(r){var sp=pastPrice(r),fp=firstPrice(r),d=sp?dec(sp[0]):null,e
    Places are recorded at the best price and again at FanDuel's prices; any other book falls back to the plain ranking. FanDuel games locked
    before its places were recorded keep the best-price places. */
 function heldF(c,k){if(S.book==="FanDuel"){var v=c[k+"f"];return v!=null?v:c[k]}return c[k]}
-function heldN(list,n,flag){var plain=S.book!=="best"&&S.book!=="FanDuel",fl=list.map(function(c){return plain?null:flag(c)}),topn=list.filter(function(c,i){return fl[i]!==0}).slice(0,n);
+/* games not priced yet (Sunday's on a Thursday) still compete: for the Top 8 (ranked on chance, known for everyone) each unpriced player above
+   counts by how often one at his chance turned out a pick; lists ranked on prices give the games priced so far their share of the places */
+function pickRate(p){return p<0.5?0.2:0.03}
+function heldN(list,n,flag,X){var plain=S.book!=="best"&&S.book!=="FanDuel",fl=list.map(function(c){return plain?null:flag(c)}),elig=list.filter(function(c,i){return fl[i]!==0}),topn;
+  if(!X||!X.nu)topn=elig.slice(0,n);
+  else if(X.gh){topn=elig.filter(function(c,i){var e=i;X.gh.forEach(function(q){if(q>c.p)e+=pickRate(q)});return e<n})}
+  else{var hc=list.filter(function(c,i){return fl[i]===1}).length;topn=elig.slice(0,Math.max(hc,Math.ceil(n*(X.ng-X.nu)/X.ng)))}
   return list.filter(function(c,i){return fl[i]===1||(fl[i]==null&&topn.indexOf(c)>=0)})}
 function weekPicks(season,wk){var out=[],ls=[],rows=[],tw=[];
   if(season===D.season){rows=D.picks.filter(function(r){var g=gm(r.g);return g&&g.wk===wk}).map(calc);rows.forEach(function(r){var c=cardLive(r),hp=!!c.pr&&heldOK()&&heldF(c,"t8")===1,hl=!!c.pr&&heldOK()&&heldF(c,"l4")===1;if(r._pick||hp)out.push(c);else if(r._ls||hl)ls.push(c);if(r._two||(heldOK()&&heldF(c,"d2")===1))tw.push(twoCard(c))})}
   (D.trk||[]).forEach(function(r){if(r[0]===season&&r[1]===wk&&!gm(r[2])){var c=cardPast(r),hp=!!c.pr&&heldOK()&&heldF(c,"t8")===1;if(c.pick||hp)out.push(c);else if(c.ls||(!!c.pr&&heldOK()&&heldF(c,"l4")===1))ls.push(c);if(c.two||(heldOK()&&heldF(c,"d2")===1))tw.push(twoCard(c))}});
-  out.sort(function(a,b){return b.p-a.p});var top=heldN(out,8,function(c){return heldF(c,"t8")});top.forEach(function(c){c.top=true;if(c.row)c.row._top=true});
-  ls.sort(function(a,b){return b.ev-a.ev});var lt=heldN(ls,4,function(c){return heldF(c,"l4")});lt.forEach(function(c){c.lsTop=true;if(c.row)c.row._lst=true});
-  tw.sort(function(a,b){return b.p-a.p});var tt=heldN(tw,4,function(c){return heldF(c,"d2")});tt.forEach(function(c){if(c.row)c.row._twt=true});
+  var X={nu:0,ng:0,gh:[]};if(season===D.season){var gw_=D.sched.filter(function(g){return g.wk===wk});gw_.forEach(function(g){X.ng++;var rs=rows.filter(function(r){return r.g===g.gid});if(!started(g.gid)&&!rs.some(function(r){return r._pr&&r._pr.bk!=="Your price"})){X.nu++;rs.forEach(function(r){if(r.p>=0.2)X.gh.push(r.p)})}});
+    X.ng+=Object.keys((D.trk||[]).reduce(function(a,r){if(r[0]===season&&r[1]===wk&&!gm(r[2]))a[r[2]]=1;return a},{})).length}
+  var Xp={nu:X.nu,ng:X.ng};
+  out.sort(function(a,b){return b.p-a.p});var top=heldN(out,8,function(c){return heldF(c,"t8")},X);top.forEach(function(c){c.top=true;if(c.row)c.row._top=true});
+  ls.sort(function(a,b){return b.ev-a.ev});var lt=heldN(ls,4,function(c){return heldF(c,"l4")},Xp);lt.forEach(function(c){c.lsTop=true;if(c.row)c.row._lst=true});
+  tw.sort(function(a,b){return b.p-a.p});var tt=heldN(tw,4,function(c){return heldF(c,"d2")},Xp);tt.forEach(function(c){if(c.row)c.row._twt=true});
   return{rows:rows,picks:out,top:top,ls:ls,lsTop:lt,two:tw,twoTop:tt}}
 function poolWk(wk){return weekPicks(D.season,wk).rows}
 function plOf(c){return !c.res||!c.pr?null:c.res.td>0?dec(c.pr.a)-1:c.res.final?-1:null}
@@ -735,7 +744,7 @@ function parlIdeas(wk,rows,st,books,ex,held){var B=D.recb||{},R=B.rule||{},exk={
    Games already started keep the picks that locked at kickoff. The Tracker and net units always count the best-price board. */
 function bookBoard(wk,mode){var bk=rBk(),B=D.recb||{},R=B.rule||{};if(!bk||mode!=="live")return null;
   var gw=D.sched.filter(function(g){return g.wk===wk}),now=Date.now(),st={};gw.forEach(function(g){st[g.gid]=Date.parse(g.ts)<=now});
-  var rows=(B.rows||[]).filter(function(x){return st[x.g]===false}),pos=R.pos||["TE","RB"],nP=Math.min(5,Math.max(1,Math.ceil(gw.length/3)));
+  var rows=(B.rows||[]).filter(function(x){return st[x.g]===false}),pos=R.pos||["TE","RB"],nGw=gw.length+Object.keys((B.rows||[]).reduce(function(a,x){if(x.wk===wk&&st[x.g]==null)a[x.g]=1;return a},{})).length,nP=Math.min(5,Math.max(1,Math.ceil(nGw/3)));   // finished games that left the schedule still count
   var keep=function(list){return (list||[]).filter(function(x){return x.wk===wk&&st[x.g]!==false})};   // started, or finished and gone from the schedule
   // picks
   var F=bk==="FanDuel"&&B.fd?B.fd:B;   // FanDuel has its own board locked at kickoff; other books keep the best-price locks
@@ -743,8 +752,10 @@ function bookBoard(wk,mode){var bk=rBk(),B=D.recb||{},R=B.rule||{};if(!bk||mode!
   rows.forEach(function(x){if(x.line==null||x.check||(x.books||0)<(R.books||3)||pos.indexOf(x.pos)<0)return;
     ["ov","un"].forEach(function(sd){var s=x[sd];if(!s||!s.by||s.by[bk]==null)return;var a=s.by[bk],d=dec(a),m=s.p-1/d;if(m<(R.m||0.01)||m>(R.mx||0.04)||d<(R.pmin||1.667))return;
       var e=s.p*d-1,kel=Math.max(e,0)/(d-1);cands.push({g:x.g,id:x.id,n:x.n,t:x.t,o:x.o,pos:x.pos,side:sd.charAt(0),line:x.line,a:a,bk:bk,p:s.p,e:e,m:m,pm:x.pm,mk:x.mk,mu:x.mu,u:Math.min(1.5,Math.max(0.25,Math.round(kel*25*4)/4)),wk:wk})})});
+  var nU=gw.filter(function(g){return !st[g.gid]&&!rows.some(function(x){return x.g===g.gid&&x.line!=null})}).length,nG=nGw,
+    share=function(n_,h_){return nU?Math.max(h_,Math.ceil(n_*(nG-nU)/nG)):n_},capP=share(nP,fp.length);   // games with no lines yet: the priced games get their share
   cands.sort(function(a,b){return b.p-a.p});var teams={},picks=fp.slice();fp.forEach(function(p_){teams[p_.t]=1});
-  cands.forEach(function(c){if(picks.length>=nP||teams[c.t]||picks.some(function(o){return o.id===c.id}))return;teams[c.t]=1;picks.push(c)});
+  cands.forEach(function(c){if(picks.length>=capP||teams[c.t]||picks.some(function(o){return o.id===c.id}))return;teams[c.t]=1;picks.push(c)});
   // ladder watch
   var fl=keep(F.lad),lc=[];
   rows.forEach(function(x){if(x.check)return;var kk=x.kk,good=[];Object.keys(x.lad||{}).forEach(function(k_){var k=+k_,v=x.lad[k_];if(k<Math.max(2,kk)||k>kk+2||!v.by||v.by[bk]==null)return;var a=v.by[bk],e=v.p*dec(a)-1;
@@ -752,7 +763,7 @@ function bookBoard(wk,mode){var bk=rBk(),B=D.recb||{},R=B.rule||{};if(!bk||mode!
     if(good.length<2||Math.max.apply(null,good.map(function(g_){return g_[0]}))<kk)return;good.sort(function(a,b){return a[0]-b[0]});
     var w=good.map(function(g_){return g_[3]*g_[4]}),tot=w.reduce(function(a,b){return a+b},0),te=0;good.forEach(function(g_,i){g_.push(tot>0?Math.round(w[i]/tot*100)/100:Math.round(100/good.length)/100);te+=g_[4]});
     lc.push({g:x.g,id:x.id,n:x.n,t:x.t,o:x.o,pos:x.pos,line:x.line,mu:x.mu,mub:x.mub,te:te,rungs:good,wk:wk})});
-  lc.sort(function(a,b){return b.te-a.te});var lad=fl.concat(lc.filter(function(c){return !fl.some(function(f){return f.id===c.id})}).slice(0,Math.max(0,nP-fl.length)));
+  lc.sort(function(a,b){return b.te-a.te});var lad=fl.concat(lc.filter(function(c){return !fl.some(function(f){return f.id===c.id})}).slice(0,Math.max(0,share(nP,fl.length)-fl.length)));
   var parl=parlIdeas(wk,rows,st,[bk],rzEx(),F);
   return{picks:picks,lad:lad,parl:parl}}
 /* Parlay ideas → My bets: one parlay bet at the idea's book, price and suggested stake, graded leg by leg on catches */
