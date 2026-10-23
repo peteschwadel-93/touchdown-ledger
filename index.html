@@ -1113,7 +1113,10 @@ function closeOf(b){if(b.close&&b.close.a!=null)return{a:b.close.a};
   if(b.mk==="p"){var legs=b.legs||[];if(!legs.length)return null;var d=1,nw=false;for(var i=0;i<legs.length;i++){var c=closeLeg(Object.assign({},legs[i],{book:b.book}));if(!c)return null;d*=dec(c.a);if(c.now)nw=true}
     return{d:d,now:nw}}
   return closeLeg(b)}
-function clvOf(b){var c=closeOf(b);if(!c)return null;if(c.d){var ld=1;(b.legs||[]).forEach(function(l){ld*=dec(l.odds)});return{v:ld/c.d-1,a:d2a(c.d),now:c.now}}return b.listed!=null?{v:dec(b.listed)/dec(c.a)-1,a:c.a,now:c.now}:null}
+/* CLV on the price you actually took (your odds), against the close; falls back to the listed price only if no odds were entered */
+function clvOf(b){var c=closeOf(b);if(!c)return null;var mine=b.odds!=null&&b.odds!==""?b.odds:b.listed;
+  if(c.d){var ld=1;if(mine!=null)ld=dec(mine);else(b.legs||[]).forEach(function(l){ld*=dec(l.odds)});return{v:ld/c.d-1,a:d2a(c.d),now:c.now}}
+  return mine!=null?{v:dec(mine)/dec(c.a)-1,a:c.a,now:c.now}:null}
 /* keep a closing price on the bet once the game has started */
 function keepCloses(){var ch=false;BETS.forEach(function(b){if(b.close||b.mk==="p")return;var c=closeLeg(b);if(c&&!c.now&&(gm(b.gid)?started(b.gid):true)){b.close={a:c.a};ch=true}});if(ch)saveBets()}
 var _rx;function recOf(gid,n){if(!_rx){_rx={};(D.rtrk||[]).forEach(function(r){_rx[r[2]+"|"+norm(r[3])]=r[8]})}var v=_rx[gid+"|"+norm(n)];return v==null?null:v}
