@@ -991,110 +991,152 @@ def rec_board(sched, picks, store, phi, season, rtrk=None):
     # a live week keeps its games that already finished and left the schedule (Sunday's games on a Monday), with their locked picks
     allw = [(wk, [g for g in sched if g["wk"] == wk] + [{"gid": g_} for g_ in sorted(past.get(wk, ())) if g_ not in games], "live") for wk in weeks] + [(wk, [{"gid": g_} for g_ in sorted(gids)], pastmode[wk]) for wk, gids in sorted(past.items()) if wk not in weeks]
     out["weeks"] = {str(wk): mode for wk, _, mode in allw}
-    for wk, gw, mode in allw:
-        n_pick = min(5, max(1, math.ceil(len(gw) / 3)))
-        # picks: main-line overs and unders
-        frozen = [p_ for g in gw if started[g["gid"]] for p_ in ((store.get(g["gid"]) or {}).get("rxp") or [])]
-        cands = []
-        for g in gw:
-            if started[g["gid"]]:
-                continue
-            for x in byg.get(g["gid"], []):
-                if not x.get("line") or x.get("check") or x.get("books", 0) < RB["books"] or x["pos"] not in RB["pos"]:
+    def fd_view(x):
+        """the row with FanDuel's own prices in place of the best: the FanDuel board is chosen by the same rules from these"""
+        y = dict(x)
+        for side in ("ov", "un"):
+            sd = x.get(side)
+            y.pop(side, None)
+            a = (sd or {}).get("by", {}).get("FanDuel")
+            if sd and a:
+                dd = american(a)
+                y[side] = dict(sd, a=a, bk="FanDuel", n=1, e=r3(sd["p"] * dd - 1), m=r3(sd["p"] - 1 / dd), by={"FanDuel": a})
+        y["lad"] = {}
+        for k_, v in x["lad"].items():
+            a = (v.get("by") or {}).get("FanDuel")
+            if a:
+                y["lad"][k_] = dict(v, a=a, bk="FanDuel", n=1, e=r3(v["p"] * american(a) - 1), by={"FanDuel": a})
+        return y
+
+    def select(byg_, sfx):
+        res = {"picks": [], "lad": [], "parl": []}
+        st_ = dict(started)
+
+        def held(gid, k, mode):
+            v = (store.get(gid) or {}).get(k + sfx)
+            if v is None and sfx and mode != "live":      # finished before the FanDuel board existed: the best-price locks
+                v = (store.get(gid) or {}).get(k)
+            return v
+        if sfx:      # a live week's game that kicked off before this board was saved: chosen once from its last prices, then frozen
+            for wk_, gw_, mode_ in allw:
+                if mode_ == "live":
+                    for g in gw_:
+                        if st_.get(g["gid"]) and (store.get(g["gid"]) or {}).get("rxp" + sfx) is None:
+                            st_[g["gid"]] = False
+        for wk, gw, mode in allw:
+            n_pick = min(5, max(1, math.ceil(len(gw) / 3)))
+            # picks: main-line overs and unders
+            frozen = [p_ for g in gw if st_[g["gid"]] for p_ in (held(g["gid"], "rxp", mode) or [])]
+            cands = []
+            for g in gw:
+                if st_[g["gid"]]:
                     continue
-                for side in ("ov", "un"):
-                    s = x.get(side)
-                    if s and RB["m"] <= s["m"] <= RB["mx"] and american(s["a"]) >= RB["pmin"]:
-                        dd = american(s["a"])
-                        kel = max(s["e"], 0) / (dd - 1)
-                        cands.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "o": x["o"], "pos": x["pos"], "side": side[0], "line": x["line"],
-                                      "a": s["a"], "bk": s["bk"], "p": s["p"], "e": s["e"], "m": s["m"], "pm": x["pm"], "mk": x["mk"], "mu": x["mu"],
-                                      "u": min(1.5, max(0.25, round(kel * 25 * 4) / 4))})
-        cands.sort(key=lambda c: -c["p"])          # likeliest first: the biggest margins were mostly model error
-        teams = {p_["t"] for p_ in frozen}
-        chosen = []
-        for c in cands:
-            if len(frozen) + len(chosen) >= n_pick:
-                break
-            if c["t"] in teams or any(o["id"] == c["id"] for o in chosen):
-                continue
-            teams.add(c["t"])
-            chosen.append(c)
-        for g in gw:
-            if not started[g["gid"]] and mode == "live":
-                store.setdefault(g["gid"], {})["rxp"] = [dict(c, wk=wk) for c in chosen if c["g"] == g["gid"]]
-        rt = {"rt": 1} if mode == "retro" else {}
-        out["picks"] += [dict(p_, wk=wk, lk=1) for p_ in frozen] + [dict(c, wk=wk, **rt) for c in chosen]
-        # ladder watch
-        frozen_l = [p_ for g in gw if started[g["gid"]] for p_ in ((store.get(g["gid"]) or {}).get("rxl") or [])]
-        lc = []
-        for g in gw:
-            if started[g["gid"]]:
-                continue
-            for x in byg.get(g["gid"], []):
-                if x.get("check"):
-                    continue
-                kk = x["kk"]
-                good = [(int(k_), v) for k_, v in x["lad"].items() if max(2, kk) <= int(k_) <= kk + 2 and v["p"] >= RB["lp"] and RB["llo"] <= v["e"] <= RB["lhi"]
-                        and american(v["a"]) <= RB["lmax"]]
-                if len(good) < 2 or max(k_ for k_, _ in good) < kk:
-                    continue
-                wts = [v["p"] * v["e"] for _, v in good]
-                tot = sum(wts)
-                lc.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "o": x["o"], "pos": x["pos"], "line": x["line"], "mu": x["mu"], "mub": x["mub"],
-                           "te": r3(sum(v["e"] for _, v in good)), "rungs": [[k_, v["a"], v["bk"], v["p"], v["e"], r3(w_ / tot, 2) if tot > 0 else r3(1 / len(good), 2)] for (k_, v), w_ in zip(good, wts)]})
-        lc.sort(key=lambda c: -c["te"])
-        n_l = min(5, max(1, math.ceil(len(gw) / 3)))
-        chosen_l = [c for c in lc if c["id"] not in {p_["id"] for p_ in frozen_l}][:max(0, n_l - len(frozen_l))]
-        for g in gw:
-            if not started[g["gid"]] and mode == "live":
-                store.setdefault(g["gid"], {})["rxl"] = [dict(c, wk=wk) for c in chosen_l if c["g"] == g["gid"]]
-        out["lad"] += [dict(p_, wk=wk, lk=1) for p_ in frozen_l] + [dict(c, wk=wk, **rt) for c in chosen_l]
-        # parlay ideas: legs that each beat their price at one book, one per player, different games
-        key = f"{season}|{wk}"
-        pz = store.setdefault("_rxparl", {})
-        kept = [i for i in (pz.get(key) or []) if any(started.get(l_["g"]) for l_ in i["legs"])]
-        pool = []
-        for g in gw:
-            if started[g["gid"]]:
-                continue
-            for x in byg.get(g["gid"], []):
-                if x.get("check") or not x.get("line"):
-                    continue
-                for side in ("ov", "un"):
-                    s = x.get(side)
-                    if s and s["p"] >= RB["pm"]:
-                        for bk, a in s["by"].items():
-                            e = s["p"] * american(a) - 1
-                            if RB["m"] <= s["p"] - 1 / american(a) <= RB["mx"]:
-                                pool.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "lab": ("Over " if side == "ov" else "Under ") + f"{x['line']:g}", "bk": bk, "a": a, "p": s["p"], "e": r3(e)})
-                for k_, v in x["lad"].items():
-                    if x["kk"] + 1 <= int(k_) <= x["kk"] + 2 and v["p"] >= RB["pr"]:
-                        for bk, a in v["by"].items():
-                            e = v["p"] * american(a) - 1
-                            if RB["plo"] <= e <= RB["phi_"]:
-                                pool.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "lab": f"{k_}+ catches", "bk": bk, "a": a, "p": v["p"], "e": r3(e)})
-        ideas = []
-        for size in (2, 3):
-            best = None
-            for bk in {l_["bk"] for l_ in pool}:
-                L = sorted([l_ for l_ in pool if l_["bk"] == bk], key=lambda z: -z["e"])[:12]
-                for combo in itertools.combinations(L, size):
-                    if len({c["g"] for c in combo}) < size or len({c["id"] for c in combo}) < size:
+                for x in byg_.get(g["gid"], []):
+                    if not x.get("line") or x.get("check") or x.get("books", 0) < RB["books"] or x["pos"] not in RB["pos"]:
                         continue
-                    q = math.prod(c["p"] for c in combo)
-                    D_ = math.prod(american(c["a"]) for c in combo)
-                    ev = q * D_ - 1
-                    if best is None or ev > best["ev"]:
-                        best = {"bk": bk, "legs": list(combo), "q": r3(q, 4), "d": r3(D_, 3), "ev": r3(ev, 3)}
-            if best:
-                kel = max(best["ev"], 0) / (best["d"] - 1)
-                best["u"] = round(min(0.5, max(0.1, kel * 100 / 8)) * 20) / 20
-                ideas.append(best)
-        new = [i for i in ideas if len(i["legs"]) not in {len(k_["legs"]) for k_ in kept}]
-        if mode == "live":
-            pz[key] = [dict(i, wk=wk) for i in kept + new]
-        out["parl"] += [dict(i, wk=wk, lk=1 if i in kept else 0, **rt) for i in kept + new]
+                    for side in ("ov", "un"):
+                        s = x.get(side)
+                        if s and RB["m"] <= s["m"] <= RB["mx"] and american(s["a"]) >= RB["pmin"]:
+                            dd = american(s["a"])
+                            kel = max(s["e"], 0) / (dd - 1)
+                            cands.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "o": x["o"], "pos": x["pos"], "side": side[0], "line": x["line"],
+                                          "a": s["a"], "bk": s["bk"], "p": s["p"], "e": s["e"], "m": s["m"], "pm": x["pm"], "mk": x["mk"], "mu": x["mu"],
+                                          "u": min(1.5, max(0.25, round(kel * 25 * 4) / 4))})
+            cands.sort(key=lambda c: -c["p"])          # likeliest first: the biggest margins were mostly model error
+            teams = {p_["t"] for p_ in frozen}
+            chosen = []
+            for c in cands:
+                if len(frozen) + len(chosen) >= n_pick:
+                    break
+                if c["t"] in teams or any(o["id"] == c["id"] for o in chosen):
+                    continue
+                teams.add(c["t"])
+                chosen.append(c)
+            for g in gw:
+                if not st_[g["gid"]] and mode == "live":
+                    store.setdefault(g["gid"], {})["rxp" + sfx] = [dict(c, wk=wk) for c in chosen if c["g"] == g["gid"]]
+            rt = {"rt": 1} if mode == "retro" else {}
+            res["picks"] += [dict(p_, wk=wk, lk=1) for p_ in frozen] + [dict(c, wk=wk, **rt) for c in chosen]
+            # ladder watch
+            frozen_l = [p_ for g in gw if st_[g["gid"]] for p_ in (held(g["gid"], "rxl", mode) or [])]
+            lc = []
+            for g in gw:
+                if st_[g["gid"]]:
+                    continue
+                for x in byg_.get(g["gid"], []):
+                    if x.get("check"):
+                        continue
+                    kk = x["kk"]
+                    good = [(int(k_), v) for k_, v in x["lad"].items() if max(2, kk) <= int(k_) <= kk + 2 and v["p"] >= RB["lp"] and RB["llo"] <= v["e"] <= RB["lhi"]
+                            and american(v["a"]) <= RB["lmax"]]
+                    if len(good) < 2 or max(k_ for k_, _ in good) < kk:
+                        continue
+                    wts = [v["p"] * v["e"] for _, v in good]
+                    tot = sum(wts)
+                    lc.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "o": x["o"], "pos": x["pos"], "line": x["line"], "mu": x["mu"], "mub": x["mub"],
+                               "te": r3(sum(v["e"] for _, v in good)), "rungs": [[k_, v["a"], v["bk"], v["p"], v["e"], r3(w_ / tot, 2) if tot > 0 else r3(1 / len(good), 2)] for (k_, v), w_ in zip(good, wts)]})
+            lc.sort(key=lambda c: -c["te"])
+            n_l = min(5, max(1, math.ceil(len(gw) / 3)))
+            chosen_l = [c for c in lc if c["id"] not in {p_["id"] for p_ in frozen_l}][:max(0, n_l - len(frozen_l))]
+            for g in gw:
+                if not st_[g["gid"]] and mode == "live":
+                    store.setdefault(g["gid"], {})["rxl" + sfx] = [dict(c, wk=wk) for c in chosen_l if c["g"] == g["gid"]]
+            res["lad"] += [dict(p_, wk=wk, lk=1) for p_ in frozen_l] + [dict(c, wk=wk, **rt) for c in chosen_l]
+            # parlay ideas: legs that each beat their price at one book, one per player, different games
+            key = f"{season}|{wk}"
+            pz = store.setdefault("_rxparl" + sfx, {})
+            if sfx and mode != "live" and key not in pz:      # weeks finished before the FanDuel board existed: the best-price locks
+                pz = dict(pz, **{key: (store.get("_rxparl") or {}).get(key) or []})
+            kept = [i for i in (pz.get(key) or []) if any(st_.get(l_["g"]) for l_ in i["legs"])]
+            pool = []
+            for g in gw:
+                if st_[g["gid"]]:
+                    continue
+                for x in byg_.get(g["gid"], []):
+                    if x.get("check") or not x.get("line"):
+                        continue
+                    for side in ("ov", "un"):
+                        s = x.get(side)
+                        if s and s["p"] >= RB["pm"]:
+                            for bk, a in s["by"].items():
+                                e = s["p"] * american(a) - 1
+                                if RB["m"] <= s["p"] - 1 / american(a) <= RB["mx"]:
+                                    pool.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "lab": ("Over " if side == "ov" else "Under ") + f"{x['line']:g}", "bk": bk, "a": a, "p": s["p"], "e": r3(e)})
+                    for k_, v in x["lad"].items():
+                        if x["kk"] + 1 <= int(k_) <= x["kk"] + 2 and v["p"] >= RB["pr"]:
+                            for bk, a in v["by"].items():
+                                e = v["p"] * american(a) - 1
+                                if RB["plo"] <= e <= RB["phi_"]:
+                                    pool.append({"g": x["g"], "id": x["id"], "n": x["n"], "t": x["t"], "lab": f"{k_}+ catches", "bk": bk, "a": a, "p": v["p"], "e": r3(e)})
+            ideas = []
+            for size in (2, 3):
+                best = None
+                for bk in {l_["bk"] for l_ in pool}:
+                    L = sorted([l_ for l_ in pool if l_["bk"] == bk], key=lambda z: -z["e"])[:12]
+                    for combo in itertools.combinations(L, size):
+                        if len({c["g"] for c in combo}) < size or len({c["id"] for c in combo}) < size:
+                            continue
+                        q = math.prod(c["p"] for c in combo)
+                        D_ = math.prod(american(c["a"]) for c in combo)
+                        ev = q * D_ - 1
+                        if best is None or ev > best["ev"]:
+                            best = {"bk": bk, "legs": list(combo), "q": r3(q, 4), "d": r3(D_, 3), "ev": r3(ev, 3)}
+                if best:
+                    kel = max(best["ev"], 0) / (best["d"] - 1)
+                    best["u"] = round(min(0.5, max(0.1, kel * 100 / 8)) * 20) / 20
+                    ideas.append(best)
+            new = [i for i in ideas if len(i["legs"]) not in {len(k_["legs"]) for k_ in kept}]
+            if mode == "live":
+                pz[key] = [dict(i, wk=wk) for i in kept + new]
+            res["parl"] += [dict(i, wk=wk, lk=1 if i in kept else 0, **rt) for i in kept + new]
+        return res
+
+    sel = select(byg, "")
+    out["picks"], out["lad"], out["parl"] = sel["picks"], sel["lad"], sel["parl"]
+    byf = {}
+    for x in rows:
+        byf.setdefault(x["g"], []).append(fd_view(x))
+    out["fd"] = select(byf, "F")          # the FanDuel board, frozen at kickoff the same way
     for x in rows:                      # past weeks only need the best prices on the page
         if "act" in x:
             for s in ("ov", "un"):

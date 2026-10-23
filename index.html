@@ -313,7 +313,7 @@ function priceOf(r,book){
   var best=null;Object.keys(by).forEach(function(b){if(!best||dec(by[b])>dec(best.a))best={a:by[b],bk:b,n:Object.keys(by).length}});return best}
 var MAINBK="FanDuel";
 function bookName(){return S.book==="best"?"the best price across books":S.book}
-function bookSel(id){var bs={};allBooks().concat(rBooks()).forEach(function(b){bs[b]=1});if(S.book!=="best")bs[S.book]=1;var books=Object.keys(bs).sort();return '<label class="f" for="'+id+'">Book <select id="'+id+'" class="selBook"><option value="best"'+(S.book==="best"?" selected":"")+">Best price</option>"+books.map(function(b){return '<option'+(S.book===b?" selected":"")+">"+esc(b)+"</option>"}).join("")+"</select></label>"}
+function bookSel(id){var bs={FanDuel:1};allBooks().concat(rBooks()).forEach(function(b){bs[b]=1});Object.keys(D.odds||{}).forEach(function(k){var o=D.odds[k];if(o&&o.b&&!Array.isArray(o.b))Object.keys(o.b).forEach(function(b){bs[b]=1})});if(S.book!=="best")bs[S.book]=1;var books=Object.keys(bs).sort();return '<label class="f" for="'+id+'">Book <select id="'+id+'" class="selBook"><option value="best"'+(S.book==="best"?" selected":"")+">Best price</option>"+books.map(function(b){return '<option'+(S.book===b?" selected":"")+">"+esc(b)+"</option>"}).join("")+"</select></label>"}
 var PK={p:0.2,lo:0.03,hi:0.25};   /* the Picks rule: see the Tracker for its record */
 function firstOf(r,book){var by=oddsFor(r.g).byf[norm(r.n)];if(!by)return null;if(book&&book!=="best")return by[book]!=null?{a:by[book],bk:book}:null;
   var best=null;Object.keys(by).forEach(function(b){if(!best||dec(by[b])>dec(best.a))best={a:by[b],bk:b}});return best}
@@ -718,8 +718,8 @@ function tdTag1(gid,id){var z=tgtDrop(gid,id);if(!z)return"";return ' <span clas
 /* players left out of the parlay ideas (this browser only); the ideas are rebuilt without them */
 function rzEx(){var v=ls("atd-rzex");return Array.isArray(v)?v:[]}
 function rzOut(n){var k=norm(n);return rzEx().some(function(x){return norm(x)===k})}
-function parlIdeas(wk,rows,st,books,ex){var B=D.recb||{},R=B.rule||{},exk={};(ex||[]).forEach(function(n){exk[norm(n)]=1});
-  var kp=(B.parl||[]).filter(function(i){return i.wk===wk&&i.legs.some(function(l){return st[l.g]!==false})});
+function parlIdeas(wk,rows,st,books,ex,held){var B=D.recb||{},R=B.rule||{},exk={};(ex||[]).forEach(function(n){exk[norm(n)]=1});
+  var kp=((held||B).parl||[]).filter(function(i){return i.wk===wk&&i.legs.some(function(l){return st[l.g]!==false})});
   var bks=books;if(!bks){var bs={};rows.forEach(function(x){["ov","un"].forEach(function(sd){var s=x[sd];if(s&&s.by)Object.keys(s.by).forEach(function(b){bs[b]=1})});Object.keys(x.lad||{}).forEach(function(k){var v=x.lad[k];if(v.by)Object.keys(v.by).forEach(function(b){bs[b]=1})})});bks=Object.keys(bs)}
   var best={};bks.forEach(function(bk){var pool=[];
     rows.forEach(function(x){if(x.check||x.line==null||exk[norm(x.n)])return;
@@ -738,21 +738,22 @@ function bookBoard(wk,mode){var bk=rBk(),B=D.recb||{},R=B.rule||{};if(!bk||mode!
   var rows=(B.rows||[]).filter(function(x){return st[x.g]===false}),pos=R.pos||["TE","RB"],nP=Math.min(5,Math.max(1,Math.ceil(gw.length/3)));
   var keep=function(list){return (list||[]).filter(function(x){return x.wk===wk&&st[x.g]!==false})};   // started, or finished and gone from the schedule
   // picks
-  var fp=keep(B.picks),cands=[];
+  var F=bk==="FanDuel"&&B.fd?B.fd:B;   // FanDuel has its own board locked at kickoff; other books keep the best-price locks
+  var fp=keep(F.picks),cands=[];
   rows.forEach(function(x){if(x.line==null||x.check||(x.books||0)<(R.books||3)||pos.indexOf(x.pos)<0)return;
     ["ov","un"].forEach(function(sd){var s=x[sd];if(!s||!s.by||s.by[bk]==null)return;var a=s.by[bk],d=dec(a),m=s.p-1/d;if(m<(R.m||0.01)||m>(R.mx||0.04)||d<(R.pmin||1.667))return;
       var e=s.p*d-1,kel=Math.max(e,0)/(d-1);cands.push({g:x.g,id:x.id,n:x.n,t:x.t,o:x.o,pos:x.pos,side:sd.charAt(0),line:x.line,a:a,bk:bk,p:s.p,e:e,m:m,pm:x.pm,mk:x.mk,mu:x.mu,u:Math.min(1.5,Math.max(0.25,Math.round(kel*25*4)/4)),wk:wk})})});
   cands.sort(function(a,b){return b.p-a.p});var teams={},picks=fp.slice();fp.forEach(function(p_){teams[p_.t]=1});
   cands.forEach(function(c){if(picks.length>=nP||teams[c.t]||picks.some(function(o){return o.id===c.id}))return;teams[c.t]=1;picks.push(c)});
   // ladder watch
-  var fl=keep(B.lad),lc=[];
+  var fl=keep(F.lad),lc=[];
   rows.forEach(function(x){if(x.check)return;var kk=x.kk,good=[];Object.keys(x.lad||{}).forEach(function(k_){var k=+k_,v=x.lad[k_];if(k<Math.max(2,kk)||k>kk+2||!v.by||v.by[bk]==null)return;var a=v.by[bk],e=v.p*dec(a)-1;
       if(v.p>=(R.lp||0.2)&&e>=(R.llo||0.1)&&e<=(R.lhi||0.4)&&dec(a)<=(R.lmax||15))good.push([k,a,bk,v.p,e])});
     if(good.length<2||Math.max.apply(null,good.map(function(g_){return g_[0]}))<kk)return;good.sort(function(a,b){return a[0]-b[0]});
     var w=good.map(function(g_){return g_[3]*g_[4]}),tot=w.reduce(function(a,b){return a+b},0),te=0;good.forEach(function(g_,i){g_.push(tot>0?Math.round(w[i]/tot*100)/100:Math.round(100/good.length)/100);te+=g_[4]});
     lc.push({g:x.g,id:x.id,n:x.n,t:x.t,o:x.o,pos:x.pos,line:x.line,mu:x.mu,mub:x.mub,te:te,rungs:good,wk:wk})});
   lc.sort(function(a,b){return b.te-a.te});var lad=fl.concat(lc.filter(function(c){return !fl.some(function(f){return f.id===c.id})}).slice(0,Math.max(0,nP-fl.length)));
-  var parl=parlIdeas(wk,rows,st,[bk],rzEx());
+  var parl=parlIdeas(wk,rows,st,[bk],rzEx(),F);
   return{picks:picks,lad:lad,parl:parl}}
 /* Parlay ideas → My bets: one parlay bet at the idea's book, price and suggested stake, graded leg by leg on catches */
 var RZ_ON=[];function rzSig(legs){return legs.map(function(l){return l.gid||l.g}).concat(legs.map(function(l){return norm(l.n)+"|"+(l.mk||"")+"|"+(l.k!=null?l.k:"")})).join(";")}
@@ -1448,7 +1449,7 @@ function render(keep){
   var tx=keep&&render._tab===S.tab?[].map.call($("view").querySelectorAll(".tw"),function(e){return e.scrollLeft}):null;render._tab=S.tab;
   $("view").innerHTML=V[S.tab]();renderModal();
   var bo=BETS.filter(function(b){return betRes(b).st==="open"}).length,bc=$("betCnt");bc.hidden=!bo;bc.textContent=bo;
-  if(document.activeElement!==$("selBook"))$("bookBar").innerHTML=allBooks().length?bookSel("selBook"):"";
+  if(document.activeElement!==$("selBook"))$("bookBar").innerHTML=bookSel("selBook");   // always shown, even between price pulls
   renderSlip();stickCols();if(tx)[].forEach.call($("view").querySelectorAll(".tw"),function(e,i){if(tx[i])e.scrollLeft=tx[i]});
   if(keep)window.scrollTo(0,y);
   if(S.open){var orow=D.picks.filter(function(x){return x.g+"|"+x.id===S.open})[0];if(orow&&orow.eid){if(NEWS[orow.eid]===undefined)loadNews(orow.eid)}}
