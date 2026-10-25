@@ -1547,7 +1547,7 @@ function popHtml(key,pin){var parts=key.split("|"),kind=parts.pop(),id=parts.joi
   var add=function(bk){return pin?'<button class="addb" type="button" data-add="'+esc(id+"|"+kind+"|"+bk)+'">+ add</button>':"<span></span>"};
   var man=hasMan?'<div class="pr"><span>Your price <i>· shown</i></span><b>'+fmtA(MAN[id])+"</b>"+add("Your price")+"</div>":"";
   return "<h4>"+esc(r.n)+(kind==="a"?"":" · "+kindLab(kind))+"<span>"+bks.length+" book"+(bks.length===1?"":"s")+"</span></h4>"+man+bks.map(function(b,i){return '<div class="pr'+(i===0?" best":"")+'"><span>'+esc(b)+(!hasMan&&shown&&shown.bk===b?" <i>· shown</i>":"")+"</span><b>"+fmtA(by[b])+"</b>"+add(b)+"</div>"}).join("")+
-    (pin&&!rk&&!ouk?'<div class="paddrow"><button class="addb" type="button" data-addp="'+esc(key)+'">+ Add to parlay</button><span>'+esc(PAR.book)+" "+(by[PAR.book]!=null?fmtA(by[PAR.book]):"· no price")+"</span></div>":"")+
+    (pin?'<div class="paddrow"><button class="addb" type="button" data-addp="'+esc(key)+'">+ Add to parlay</button><span>'+esc(PAR.book)+" "+(by[PAR.book]!=null?fmtA(by[PAR.book]):"· no price")+"</span></div>":"")+
     "<p>"+(pin?"Pick the book you bet it at. You can change the odds afterwards in My bets.":"Click the price to add it to My bets.")+"</p>"}
 function placePop(pop,x0,y0){var w=pop.offsetWidth,hh=pop.offsetHeight,x=x0+16,y=y0+16;if(x+w>window.innerWidth-8)x=x0-w-16;if(y+hh>window.innerHeight-8)y=Math.max(8,y0-hh-12);pop.style.left=Math.max(8,x)+"px";pop.style.top=y+"px"}
 function pinPop(el,e){var pop=$("pop"),h=popHtml(el.dataset.px,true);if(!h)return;pop.innerHTML=h;pop.dataset.k="pin:"+el.dataset.px;pop.classList.add("pin");pop.hidden=false;placePop(pop,e.clientX,e.clientY)}
@@ -1564,21 +1564,29 @@ var PCOR={"QB+WR":0.75,"QB+TE":0.8,"RB+RB":0.75,"WR+WR":0.85,"TE+WR":0.9,"RB+WR"
 var PAR=Object.assign({legs:[],book:MAINBK,boost:0,units:1,open:false},ls("atd-parlay")||{});
 function savePar(){ls("atd-parlay",{legs:PAR.legs,book:PAR.book,boost:PAR.boost,units:PAR.units,open:PAR.open})}
 function started(gid){var g=gm(gid);return !!(g&&g.ts&&Date.now()>=Date.parse(g.ts))}
+function isRecK(kind){return /^[rOU]/.test(kind)}
 function legOf(key){var parts=key.split("|"),kind=parts.pop(),id=parts.join("|"),r=rowOf(id);if(!r)return null;calc(r);
-  var od=oddsFor(r.g),by=(kind==="f"?od.byf:kind==="t"?od.byt:od.by)[norm(r.n)]||{},a=by[PAR.book];
-  return{key:key,id:id,kind:kind,r:r,a:a==null?null:a,ch:kind==="f"?r.pf:kind==="t"?r._p2:r.p,g:gm(r.g),st:started(r.g)}}
+  var od=oddsFor(r.g),by,ch;
+  if(isRecK(kind)){var x=recRow(r.g,r.id);if(kind.charAt(0)==="r"){var k=+kind.slice(1);by=((od.byr[norm(r.n)]||{})[k])||{};ch=x&&x.mub!=null?nbGe(x.mub,k):null}   // receptions: the blended chance the ladders show
+    else{by=ouBy(r,kind);var sd=x&&(kind.charAt(0)==="O"?x.ov:x.un);ch=sd?sd.p:null}}
+  else{by=(kind==="f"?od.byf:kind==="t"?od.byt:od.by)[norm(r.n)]||{};ch=kind==="f"?r.pf:kind==="t"?r._p2:r.p}
+  var a=by[PAR.book];return{key:key,id:id,kind:kind,rec:isRecK(kind),r:r,a:a==null?null:a,ch:ch,g:gm(r.g),st:started(r.g)}}
 function parLegs(){return PAR.legs.map(legOf).filter(Boolean)}
 function addLeg(key){var parts=key.split("|");parts.pop();var id=parts.join("|"),r=rowOf(id);
-  if(PAR.legs.some(function(k){var q=k.split("|");q.pop();return q.join("|")===id})){unpin();say2((r?r.n:"He")+" is already in the parlay");return}
+  var fam=isRecK(key.split("|").pop());
+  if(PAR.legs.some(function(k){var q=k.split("|"),kk=q.pop();return q.join("|")===id&&isRecK(kk)===fam})){unpin();say2((r?r.n:"He")+" already has a "+(fam?"receptions":"touchdown")+" leg in the parlay");return}
   PAR.legs.push(key);PAR.open=true;savePar();unpin();say2("Parlay: added "+(r?r.n:"")+" · "+PAR.legs.length+" leg"+(PAR.legs.length===1?"":"s"));renderSlip()}
 function d2a(d){if(!d||d<=1)return null;return d>=2?Math.round((d-1)*100):Math.round(-100/(d-1))}
 function parCalc(L){var q=1,d=1,miss=0,warn=[],sg=false;
   L.forEach(function(l){q*=l.ch||0;if(l.a==null)miss++;else d*=dec(l.a)});
+  var recSG=false;
   for(var i=0;i<L.length;i++)for(var j=i+1;j<L.length;j++){var a=L[i],b=L[j];if(a.r.g!==b.r.g)continue;sg=true;
+    if(a.rec||b.rec){recSG=true;continue}
     if(a.kind==="f"&&b.kind==="f"){q=0;warn.push("Only one player can score first: "+a.r.n+" and "+b.r.n+" are both First TD in the same game.");continue}
     if(a.r.t===b.r.t){var pp=[a.r.pos,b.r.pos].sort().join("+"),f=PCOR[pp]!=null?PCOR[pp]:0.91;q*=f;
       warn.push(a.r.n+" and "+b.r.n+" are teammates. "+(f<1?"Pairs like this score together about "+Math.round((1-f)*100)+"% less often than their separate chances suggest; the model chance allows for it.":"This pairing scores together about as often as their separate chances suggest."))}
     else q*=PCOR_OPP}
+  if(recSG)warn.push("Same-game legs that include receptions are not adjusted for how they move together (teammates share the targets; a player's catches and his touchdown go together), so read the model chance as rough.");
   if(sg)warn.push("Legs from the same game make this a same-game parlay. The book prices those with its own adjustments, so its price will differ from the plain product here: type the slip's price into My bets after adding.");
   L.forEach(function(l){if(l.st)warn.push(l.r.n+": his game has started, so the pre-game price is gone.")});
   if(L.length===1)warn.push("One leg is a single, not a parlay.");
@@ -1602,7 +1610,7 @@ function renderSlip(){var el=$("slip");if(!el||!D)return;var L=parLegs(),c=L.len
   var h='<div class="slipbox" role="dialog" aria-label="Parlay builder"><div class="sliphead"><h3>Parlay builder</h3><button class="mclose sm" type="button" id="slipX" aria-label="Close">×</button></div>';
   h+='<div class="slipctl"><label class="f" for="parBook">Book <select id="parBook">'+books.map(function(b){return"<option"+(b===PAR.book?" selected":"")+">"+esc(b)+"</option>"}).join("")+'</select></label><label class="f" for="parBoost">Profit boost <input type="text" inputmode="decimal" id="parBoost" value="'+(PAR.boost||"")+'" placeholder="0" style="width:56px">%</label><label class="f" for="parUnits">Units <input type="text" inputmode="decimal" id="parUnits" value="'+PAR.units+'" style="width:56px"></label></div>';
   h+='<div class="slipfill"><span class="o">Fill from Top 8 + TE picks:</span>'+[2,3,4].map(function(k){return '<button class="btn ghost sm" type="button" data-pfill="'+k+'">'+k+" legs</button>"}).join("")+"</div>";
-  if(n)h+='<ul class="legs">'+L.map(function(l){return '<li><span class="lt">'+lg(l.r.t)+'</span><span class="ln"><button class="lnk" type="button" data-open="'+esc(l.id)+'">'+esc(l.r.n)+"</button>"+(l.kind==="a"?"":'<span class="o">'+MKN[l.kind]+"</span>")+(l.r._top?'<span class="tag t8">Top 8</span>':l.r._pick?'<span class="tag pk">Pick</span>':"")+
+  if(n)h+='<ul class="legs">'+L.map(function(l){return '<li><span class="lt">'+lg(l.r.t)+'</span><span class="ln"><button class="lnk" type="button" data-open="'+esc(l.id)+'">'+esc(l.r.n)+"</button>"+(l.kind==="a"?"":'<span class="o">'+(l.rec?kindLab(l.kind):MKN[l.kind])+"</span>")+(l.r._top?'<span class="tag t8">Top 8</span>':l.r._pick?'<span class="tag pk">Pick</span>':"")+
     '<span class="o">'+l.r.t+" "+vsTxt(l.r)+(l.g?" · "+esc(l.g.t):"")+(l.st?" · started":"")+'</span></span><span class="lc" title="Model chance">'+pct(l.ch)+'</span><span class="la">'+(l.a==null?'<span class="o">none</span>':fmtA(l.a))+'</span><button class="del" type="button" data-pdel="'+esc(l.key)+'" aria-label="Remove leg">×</button></li>'}).join("")+"</ul>";
   h+='<div id="slipOut">'+slipOut(L,c||{})+"</div>";
   if(n)h+='<div class="slipact"><button class="btn" type="button" id="parLog"'+(c&&c.d?"":" disabled")+'>Add to My bets</button><button class="btn ghost" type="button" id="parClear">Clear</button></div>';
@@ -1616,7 +1624,7 @@ function parFill(k){var wp=weekPicks(D.season,S.wk),seen={},pool=[],out=[];
 function parLog(){var L=parLegs(),c=parCalc(L);if(!c.d)return;var bo=PAR.boost>0;
   L.sort(function(a,b){return (a.g&&a.g.ts||"")<(b.g&&b.g.ts||"")?-1:1});
   BETS.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),mk:"p",gid:L[0].r.g,n:L.length+"-leg parlay",t:"",o:"",
-    legs:L.map(function(l){return{gid:l.r.g,pid:l.r.id,n:l.r.n,t:l.r.t,o:l.r.o,home:l.g&&l.g.h===l.r.t?1:0,pos:l.r.pos,mk:l.kind,odds:l.a,ko:l.g?l.g.ts:null}}),
+    legs:L.map(function(l){return{gid:l.r.g,pid:l.r.id,n:l.r.n,t:l.r.t,o:l.r.o,home:l.g&&l.g.h===l.r.t?1:0,pos:l.r.pos,mk:l.rec?(l.kind.charAt(0)==="r"?"r":l.kind.charAt(0)==="O"?"ro":"ru"):l.kind,k:l.rec?+l.kind.slice(1):undefined,odds:l.a,ko:l.g?l.g.ts:null}}),
     book:PAR.book,ch:c.q,odds:d2a(bo?c.bd:c.d),listed:d2a(c.d),boost:PAR.boost||0,units:PAR.units||1,settle:"auto",ko:L[0].g?L[0].g.ts:null,added:new Date().toISOString()});
   saveBets();say2("Added a "+L.length+"-leg parlay at "+fmtA(d2a(bo?c.bd:c.d))+" to My bets");render(true)}
 function legsTxt(b){return '<div class="legsx">'+(b.legs||[]).map(function(l){var s=betRes(Object.assign({},l,{settle:"auto"})).st,i=betInfo(l),done=s==="won"||s==="lost";
