@@ -228,6 +228,7 @@ table.rtab th,table.rtab td{padding:8px 9px;white-space:nowrap}
 .warnline{border-left:3px solid var(--accent);padding-left:10px}
 .pn{cursor:pointer}.pn:hover{text-decoration:underline;text-decoration-color:var(--accent)}
 table.lw td.lc{padding:6px 5px}table.lw td.lc.pk,table.lw td.lc.hitc{background:none;box-shadow:none}
+.dropped{margin-top:18px;padding-top:14px;border-top:1px dashed var(--line)}.dropped h3{margin-bottom:10px}.drl{display:flex;flex-wrap:wrap;gap:8px 28px;font-size:13.5px;line-height:1.5}.dr{display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:0 4px}.dr .o{font-size:13px}.tag.dmv{margin-left:4px}.tag.dmv.lo{color:var(--made)}.tag.dmv.sh{color:var(--miss)}
 .lbox{display:inline-flex;flex-direction:column;align-items:center;min-width:64px;padding:6px 10px;border-radius:10px;border:1.5px solid transparent;line-height:1.25}
 .lbox .px{font:700 14.5px var(--mono)}.lbox i{font:500 11.5px var(--mono);font-style:normal}.lbox i.acc{font-weight:700}
 .lbox.pk{border-color:color-mix(in srgb,var(--made) 55%,transparent);background:color-mix(in srgb,var(--made) 9%,transparent)}
@@ -382,6 +383,19 @@ function cardPast(r){var sp=pastPrice(r),fp=firstPrice(r),d=sp?dec(sp[0]):null,e
 function heldF(c,k){if(S.book==="FanDuel"){var v=c[k+"f"];return v!=null?v:c[k]}return c[k]}
 /* games not priced yet (Sunday's on a Thursday) still compete: for the Top 8 (ranked on chance, known for everyone) each unpriced player above
    counts by how often one at his chance turned out a pick; lists ranked on prices give the games priced so far their share of the places */
+/* "Listed earlier this week, since dropped": players who were on the list (Top 8, receptions picks, Ladder Watch) and fell off before
+   their game, kept by the build with when they were first listed and their first and latest price. FanDuel has its own log; other books show the best-price one. */
+function dropKind(base){return S.book==="FanDuel"?base+(base==="t8"?"f":"F"):base}
+function etTime(s){if(!s)return"";var m=/^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)/.exec(s);if(!m)return s;var h=+m[4],dy=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][new Date(Date.UTC(+m[1],+m[2]-1,+m[3])).getUTCDay()];
+  return dy+" "+((h%12)||12)+":"+m[5]+" "+(h<12?"AM":"PM")}
+function shortN(n){var w=String(n).split(" ");return w.length>1?w[0].charAt(0)+". "+w.slice(1).join(" "):n}
+function dropHtml(base,wk){var list=((D.seen||{})[D.season+"|"+wk+"|"+dropKind(base)]||[]);if(!list.length)return"";
+  var mv=function(a0,a){if(a0==null||a==null)return"";var x=dec(a),y=dec(a0);return '<span class="tag dmv'+(x>y+1e-9?" lo":x<y-1e-9?" sh":"")+'" title="Latest price against the first">'+(x>y+1e-9?"Longer":x<y-1e-9?"Shorter":"Same")+"</span>"};
+  var rg=function(z){return (z||[]).map(function(q){return q[0]+"+ <b>"+fmtA(q[1])+"</b>"}).join(" · ")};
+  list=list.slice().sort(function(a,b){return (a.at0||"")<(b.at0||"")?-1:1});
+  return '<div class="dropped"><h3>Listed earlier this week, since dropped</h3><div class="drl">'+list.map(function(e){
+    var g=gm(e.g),first=e.rg0?rg(e.rg0):"<b>"+fmtA(e.a0)+"</b>",last=e.rg?rg(e.rg):fmtA(e.a);
+    return '<span class="dr"><span class="pn">'+esc(shortN(e.n))+"</span> "+(e.rg0?"":esc(e.lab)+" ")+first+" "+esc(e.bk0||"")+'<span class="o"> · first listed '+etTime(e.at0)+" · last price "+last+(e.off?" · dropped "+etTime(e.off):"")+(g?"":" · game played")+"</span> "+mv(e.a0,e.a)+"</span>"}).join("")+"</div></div>"}
 function pickRate(p){return p<0.5?0.2:0.03}
 function heldN(list,n,flag,X){var plain=S.book!=="best"&&S.book!=="FanDuel",fl=list.map(function(c){return plain?null:flag(c)}),elig=list.filter(function(c,i){return fl[i]!==0}),topn;
   if(!X||!X.nu)topn=elig.slice(0,n);
@@ -452,6 +466,7 @@ function vPicks(){
   if(W.top.length){
     h+='<div class="pcards">'+W.top.map(pcard).join("")+"</div>";
   }else h+='<p class="empty">'+(isLive?(priced.length?"No player passes the rule right now. Check again after the next price pull.":"Picks appear once prices are loaded for this week."):"No stored prices for this week, so there are no picks to show.")+"</p>";
+  if(S.hs===D.season)h+=dropHtml("t8",S.hw);
   if(isLive)h+=priceHelp();
   h+="</section>";
   var lrec=longRecord();
@@ -803,7 +818,7 @@ function vRec(){
       L('<span title="Above break-even">Above B/E</span>',"+"+(p_.m*100).toFixed(1)+' pts <span class="o">needs '+pct(1/d_,1)+"</span>")+L("Suggested stake",'<span class="acc">'+f2(p_.u)+"u</span>")+L("Pick chance · fair",pct(p_.p,1)+" · "+amer(p_.p))+
       L("Model says",pct(p_.side==="o"?p_.pm:1-p_.pm,1))+L("Market says",p_.mk!=null?pct(p_.side==="o"?p_.mk:1-p_.mk,1):"–")+'<hr>'+L("Expected catches",f2(p_.mu,2))+
       (row?L("Catches · targets a game",f2(row.rg,1)+" · "+f2(row.tgg,1))+L((p_.side==="o"?"Over":"Under")+" in last 10",(row.rl||[]).filter(function(v){return p_.side==="o"?v>p_.line:v<p_.line}).length+" of "+(row.rl||[]).length)+L(p_.o+" targets faced",f2(row.of,2)+"× league")+(row.vo!=null&&row.vo>=2?L("Targets left open","+"+f2(row.vo,1)+" a game"):""):"")+"</div></article>"}).join("")+"</div>";
-  h+="</section>";
+  h+=dropHtml("rp",wk)+"</section>";
   // ladder watch
   h+='<section class="panel"><div class="phead"><h2>Ladder watch</h2><div class="filters">'+PL(tl,tl.n||llive?uTxt(tl.u)+" · "+(tl.u>=0?"+":"−")+"$"+Math.abs(tl.u*UNIT).toFixed(0)+" · "+lhit+" of "+lrung+" rungs hit · "+lads.filter(function(l){var r=rlRes(l);return r&&!r.open&&r.pl>0}).length+" of "+tl.n+" ladders in profit"+(llive?" · "+llive+" still live":""):"no results yet")+'<span class="tag t8">'+lads.length+" candidate"+(lads.length===1?"":"s")+" · best total edge first</span></div></div>";
   h+='<p class="note">Players with two or more rungs from the over rung of his main line to two above it that each beat their price. A rung counts only if its chance is '+Math.round((rule.lp||.2)*100)+'% or better, its edge between +'+Math.round((rule.llo||.1)*100)+'% and +'+Math.round((rule.lhi||.4)*100)+'% and its price +1400 or shorter. On the first six weeks of 2026 prices, rungs with smaller edges lost and these made money at the best price (about +19% a rung over 245, roughly +10% at FanDuel); that is fitted on the same weeks, so treat it as a lead. One for every three games, five at most. Outlined green rungs are the ones to ladder, with a suggested split of one unit underneath (more on the likelier, better-value rungs); every rung he reaches glows once the game is on. Plain cells show the model\'s chance and fair price where no book posts that rung. The chance behind each rung uses expected catches averaged between the model and what his main line implies. The amber bar marks his main line. Locks at kickoff.</p>';
@@ -820,7 +835,7 @@ function vRec(){
           var pp=nbGe(x?x.mub:l.mu,k);return '<td class="n lc'+bar+'"><div class="lbox plain'+hit+'">'+(pp!=null&&pp>=0.02?'<span class="o">'+pct(pp)+'</span><i class="o">'+amer(pp)+"</i>":"")+"</div></td>"}).join("")+
         '<td class="n"><span class="ev '+evCls(l.te)+'">'+evTxt(l.te)+'</span> <span class="o">'+l.rungs.length+" rungs</span>"+(res?' <span class="tag">'+uTxt(res.pl)+(res.open?" · live":"")+"</span>":"")+'</td><td class="n">'+(res?res.n+(res.fin?"":" live"):"–")+"</td></tr>"});
     h+="</tbody></table></div>"}
-  h+="</section>";
+  h+=dropHtml("lw",wk)+"</section>";
   // parlay ideas
   var ex_=rzEx();h+='<section class="panel"><div class="phead"><h2>Parlay ideas</h2><div class="filters">'+(ex_.length?'<span class="o" style="font-size:12.5px">Left out:</span>'+ex_.map(function(n){return '<button class="tag rzun" type="button" data-rzun="'+esc(n)+'" title="Put '+esc(n)+' back">'+esc(n)+" ×</button>"}).join(""):"")+PL(tz,U(tz))+'<span class="tag" title="Counted in the Tracker\'s Receptions net units at the suggested stakes">experimental</span></div></div>';
   h+='<p class="note">Legs that each beat their own price, one a player and each from a different game, so the book pays the full multiplied price and the legs do not lean on each other. A leg is a main-line over or under with a '+Math.round((rule.pm||.45)*100)+'% or better chance sitting 1 to 4 points above that book\'s break-even, or a ladder rung one or two above the line with '+Math.round((rule.pr||.3)*100)+'% or better and an edge of '+Math.round((rule.plo||.1)*100)+'% to '+Math.round((rule.phi_||.4)*100)+'% there. Each idea is priced at the one book that posts every leg and pays the most. The chance multiplies the legs\' chances; edges compound, and so do misses, so the stake is an eighth of Kelly, 0.1u to 0.5u. The ideas lock when their first game starts.</p>';

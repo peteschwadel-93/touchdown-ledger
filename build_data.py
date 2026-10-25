@@ -695,12 +695,17 @@ def make(season=None, old=None):
         # the store apply_locks just saved (prices plus the kickoff locks): saving the earlier copy here wiped the locks (Oct 17-19)
         for k_, v_ in full.items():
             locks.setdefault(k_, v_)
+        wks_ = {f"{season}|{u['wk']}" for u in sched}       # the "listed earlier" log keeps only the weeks still on the schedule
+        locks["_seen"] = {k_: v_ for k_, v_ in (locks.get("_seen") or {}).items() if k_.rsplit("|", 1)[0] in wks_}
         out["recb"] = rec_board(sched, out["picks"], locks, (model.get("rec") or {}).get("phi", 1.4), season, rtrk)
         with open(ODDS, "w", encoding="utf-8") as f:       # the board's picks are kept per game until kickoff, then frozen
             json.dump(locks, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
     except Exception as e:
         print(f"receptions board skipped: {e}", file=sys.stderr)
         out["recb"] = {}
+    out["seen"] = {k_: [{f: e.get(f) for f in ("n", "g", "lab", "a0", "bk0", "at0", "a", "bk", "off", "rg0", "rg")} for kk, e in v_.items() if not e.get("on")]
+                   for k_, v_ in (locks.get("_seen") or {}).items()}
+    out["seen"] = {k_: v_ for k_, v_ in out["seen"].items() if v_}
     out["live"] = live_scores(sched)
     out["notes"] = espn_notes({norm_name(x["n"]) for x in out["picks"]})
     out["odds"] = {}
@@ -1061,6 +1066,10 @@ def rec_board(sched, picks, store, phi, season, rtrk=None):
                     store.setdefault(g["gid"], {})["rxp" + sfx] = [dict(c, wk=wk) for c in chosen if c["g"] == g["gid"]]
             rt = {"rt": 1} if mode == "retro" else {}
             res["picks"] += [dict(p_, wk=wk, lk=1) for p_ in frozen] + [dict(c, wk=wk, **rt) for c in chosen]
+            if mode == "live":
+                seen_mark(store, "rp" + sfx, wk, [{"key": c["g"] + "|" + c["id"] + "|" + c["side"], "g": c["g"], "n": c["n"],
+                                                   "lab": ("Over " if c["side"] == "o" else "Under ") + f"{c['line']:g}", "a": c["a"], "bk": c["bk"]}
+                                                  for c in frozen + chosen], set(games), season)
             # ladder watch
             frozen_l = [p_ for g in gw if st_[g["gid"]] for p_ in (held(g["gid"], "rxl", mode) or [])]
             lc = []
@@ -1086,6 +1095,11 @@ def rec_board(sched, picks, store, phi, season, rtrk=None):
                 if not st_[g["gid"]] and mode == "live":
                     store.setdefault(g["gid"], {})["rxl" + sfx] = [dict(c, wk=wk) for c in chosen_l if c["g"] == g["gid"]]
             res["lad"] += [dict(p_, wk=wk, lk=1) for p_ in frozen_l] + [dict(c, wk=wk, **rt) for c in chosen_l]
+            if mode == "live":
+                seen_mark(store, "lw" + sfx, wk, [{"key": c["g"] + "|" + c["id"], "g": c["g"], "n": c["n"],
+                                                   "lab": " · ".join(f"{z[0]}+" for z in c["rungs"]), "a": c["rungs"][0][1], "bk": c["rungs"][0][2],
+                                                   "rg": [[z[0], z[1]] for z in c["rungs"]]}
+                                                  for c in frozen_l + chosen_l], set(games), season)
             # parlay ideas: legs that each beat their price at one book, one per player, different games
             key = f"{season}|{wk}"
             pz = store.setdefault("_rxparl" + sfx, {})
@@ -1191,6 +1205,30 @@ def restore_locks(store):
                     lk[n].append([v[3], v[4], None])
 
 
+def seen_mark(store, kind, wk, items, live_gids, season=None):
+    """Everything that has been on a list this week (Top 8, receptions picks, Ladder Watch; best price and FanDuel), with when it was
+    first listed and its first and latest price, so the page can show the ones that dropped off before their game. A player counts as
+    dropped only while his game is still on the schedule and he is off the list; once a game leaves the schedule its entries stay as they were."""
+    season = season or current_season()
+    log = store.setdefault("_seen", {}).setdefault(f"{season}|{wk}|{kind}", {})
+    now = datetime.now(ET).strftime("%Y-%m-%dT%H:%M")
+    cur = set()
+    for it in items:
+        k = it["key"]
+        cur.add(k)
+        e = log.get(k)
+        if e is None:
+            e = log[k] = {"n": it["n"], "g": it["g"], "lab": it["lab"], "a0": it.get("a"), "bk0": it.get("bk"), "at0": now}
+        if "rg" in it:
+            e.setdefault("rg0", it["rg"])
+            e["rg"] = it["rg"]
+        e.update({"a": it.get("a"), "bk": it.get("bk"), "lab": it["lab"], "at": now, "on": 1})
+    for k, e in log.items():
+        if k not in cur and e.get("g") in live_gids and e.get("on"):
+            e["on"] = 0
+            e["off"] = now
+
+
 def pick_rate(p):
     """how often a player at this chance turned out a Ledger pick once priced (2026 weeks 1-6)"""
     return 0.2 if p < 0.5 else 0.03
@@ -1221,7 +1259,7 @@ def apply_locks(sched, picks, now=None):
                 continue
             rec = store.get(u["gid"]) or {}
             started = hours[u["gid"]] <= 0 and rec.get("lockrows")
-            best, best2 = {}, {}
+            best, best2, bestp = {}, {}, {}
             for src, dst in ((rec.get("b") or {}, best), (rec.get("t") or {}, best2)):
                 for bk_, rows_ in src.items():
                     if only and bk_ != only:
@@ -1230,6 +1268,8 @@ def apply_locks(sched, picks, now=None):
                         k = norm_name(x[0])
                         if isinstance(x[1], (int, float)) and x[1] and (k not in dst or american(x[1]) > dst[k]):
                             dst[k] = american(x[1])
+                            if dst is best:
+                                bestp[k] = (x[1], bk_)
             n_games += 1
             if not started and not best:          # not priced yet (Sunday's games on a Thursday): their players still compete
                 n_unpriced += 1
@@ -1242,7 +1282,7 @@ def apply_locks(sched, picks, now=None):
                 long_ = bool(d and not pick and 0.10 <= r["p"] < 0.25 and 5 <= d < 10 and ev > 0)
                 d2, p2 = best2.get(norm_name(r["n"])), two_chance(r["p"], r.get("pos"), r.get("T"))
                 ev2 = p2 * d2 - 1 if d2 else None
-                cand.append({"key": (u["gid"], r["id"]), "p": r["p"], "ev": ev, "pick": pick, "long": long_,
+                cand.append({"key": (u["gid"], r["id"]), "n": r["n"], "px": bestp.get(norm_name(r["n"])), "p": r["p"], "ev": ev, "pick": pick, "long": long_,
                              "two": bool(d2 and p2 >= 0.15), "k2": p2,          # the 2+ TD picks: the four likeliest with a price, whatever the edge
                              "t8": r.get("t8" + sfx) if started else None, "l4": r.get("l4" + sfx) if started else None, "d2": r.get("d2" + sfx) if started else None})
         for flag, kind, n, rank in (("t8", "pick", 8, "p"), ("l4", "long", 4, "ev"), ("d2", "two", 4, "k2")):
@@ -1261,6 +1301,10 @@ def apply_locks(sched, picks, now=None):
             for c in cand:
                 if c[flag] == 1 or (c[flag] is None and any(c is x for x in best_n)):
                     member.setdefault(c["key"], {})[flag + sfx] = 1
+            if flag == "t8":
+                seen_mark(store, "t8" + sfx, wk, [{"key": c["key"][0] + "|" + c["key"][1], "g": c["key"][0], "n": c["n"], "lab": "anytime TD",
+                                                   "a": (c["px"] or (None, None))[0], "bk": (c["px"] or (None, None))[1]}
+                                                  for c in cand if (member.get(c["key"]) or {}).get("t8" + sfx)], live)
     out = []
     for u in sched:
         hrs = hours[u["gid"]]
