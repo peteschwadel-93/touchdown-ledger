@@ -395,7 +395,8 @@ function dropHtml(base,wk){var list=((D.seen||{})[D.season+"|"+wk+"|"+dropKind(b
   list=list.slice().sort(function(a,b){return (a.at0||"")<(b.at0||"")?-1:1});
   return '<div class="dropped"><h3>Listed earlier this week, since dropped</h3><div class="drl">'+list.map(function(e){
     var g=gm(e.g),first=e.rg0?rg(e.rg0):"<b>"+fmtA(e.a0)+"</b>",last=e.rg?rg(e.rg):fmtA(e.a);
-    return '<span class="dr"><span class="pn">'+esc(shortN(e.n))+"</span> "+(e.rg0?"":esc(e.lab)+" ")+first+" "+esc(e.bk0||"")+'<span class="o"> · first listed '+etTime(e.at0)+" · last price "+last+(e.off?" · dropped "+etTime(e.off):"")+(g?"":" · game played")+"</span> "+mv(e.a0,e.a)+"</span>"}).join("")+"</div></div>"}
+    var row=(D.picks||[]).filter(function(x){return x.g===e.g&&norm(x.n)===norm(e.n)})[0];   // open that player in that game, not a name search on the short label
+    return '<span class="dr">'+(row?'<button class="lnk pn" type="button" data-open="'+esc(row.g+"|"+row.id)+'" title="'+esc(e.n)+'">'+esc(shortN(e.n))+"</button>":'<span class="pn">'+esc(e.n)+"</span>")+" "+(e.rg0?"":esc(e.lab)+" ")+first+" "+esc(e.bk0||"")+'<span class="o"> · first listed '+etTime(e.at0)+" · last price "+last+(e.off?" · dropped "+etTime(e.off):"")+(g?"":" · game played")+"</span> "+mv(e.a0,e.a)+"</span>"}).join("")+"</div></div>"}
 function pickRate(p){return p<0.5?0.2:0.03}
 function heldN(list,n,flag,X){var plain=S.book!=="best"&&S.book!=="FanDuel",fl=list.map(function(c){return plain?null:flag(c)}),elig=list.filter(function(c,i){return fl[i]!==0}),topn;
   if(!X||!X.nu)topn=elig.slice(0,n);
